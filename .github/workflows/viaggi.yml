@@ -1,0 +1,84 @@
+name: Report viaggi
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  repository_dispatch:
+    types: [ricalcola]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: viaggi
+  cancel-in-progress: false
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      MESSAGGIO: ${{ github.event.client_payload.messaggio }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Controllo data (dormiente fino al 15/09/2027)
+        id: data
+        run: python viaggi.py --solo-controllo
+      - name: Installa Node.js
+        if: steps.data.outputs.attivo == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Installa flywizz
+        if: steps.data.outputs.attivo == 'true'
+        run: pip install flywizz
+      - name: Installa Playwright e Chromium
+        if: steps.data.outputs.attivo == 'true'
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: Avvia italian-travel-search
+        if: steps.data.outputs.attivo == 'true'
+        run: |
+          git clone --depth 1 https://github.com/Alexxanddr/italian-travel-search.git
+          cd italian-travel-search
+          npm install
+          cp .env.example .env
+          nohup npm start > ../server.log 2>&1 &
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:3000/health && break
+            sleep 3
+          done
+          curl -sf http://127.0.0.1:3000/health
+      - name: Collega Tailscale e usa il nodo di casa
+        if: steps.data.outputs.attivo == 'true'
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          version: latest
+          args: --exit-node=${{ secrets.TS_EXIT_NODE_IP }} --exit-node-allow-lan-access
+          ping: ${{ secrets.TS_EXIT_NODE_IP }}
+      - name: Verifica IP (deve essere quello di casa)
+        if: steps.data.outputs.attivo == 'true'
+        run: curl -s https://api.ipify.org
+      - name: Cerca e invia report
+        if: steps.data.outputs.attivo == 'true'
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python viaggi.py
+      - name: Salva vincoli
+        if: always() && steps.data.outputs.attivo == 'true'
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vincoli.json || true
+          git diff --cached --quiet || (git commit -m "aggiorna vincoli" && git push)
+      - name: Avviso errore su Telegram
+        if: failure() && steps.data.outputs.attivo == 'true'
+        run: |
+          sudo tailscale set --exit-node= || true
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="Errore report viaggi: controlla i log su GitHub Actions e che il dispositivo di casa sia acceso e online."
