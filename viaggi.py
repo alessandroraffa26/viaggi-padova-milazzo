@@ -5,8 +5,9 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from datetime import time as ora_t
+from html import escape as esc
 from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
 
@@ -77,11 +78,29 @@ BUFFER_TRANSITO = 60     # minuti tra arrivo e coincidenza successiva
 STAZIONE_MESSINA = "Messina Centrale"
 
 # FlixBus: se True scarta le corse senza nome/numero ufficiale della linea.
-# Oggi la fonte non lo fornisce: con True nessuna corsa FlixBus compare nel report.
-RICHIEDI_LINEA_BUS = True
+RICHIEDI_LINEA_BUS = False
 
 AEROPORTI_NORD = ["VCE", "TSF", "VRN"]
-AEROPORTI_SUD = ["CTA", "PMO"]
+AEROPORTI_SUD = ["CTA", "PMO", "REG"]
+NOME_APT = {"VCE": "Venezia Marco Polo", "TSF": "Treviso Aeroporto", "VRN": "Verona Aeroporto",
+            "CTA": "Catania Aeroporto", "PMO": "Palermo Aeroporto", "REG": "Reggio Calabria Aeroporto"}
+
+# Stadio 1 (Hermes): si scelgono i giorni piu economici entro questa tolleranza sul minimo
+# della rotta; il prezzo finale e SOLO quello verificato live.
+TOLLERANZA_HERMES = 0.30
+LIVE_PER_ROTTA = 2       # giorni verificati live per ogni rotta
+LIVE_MAX = 6             # verifiche live massime per direzione
+
+# Alternative di collegamento aeroporto -> Milazzo, cercate sul server locale (Trenitalia/Italo).
+# Ogni alternativa e una lista di tratte consecutive.
+PERCORSI_SUD = {
+    "CTA": [[("Catania Aeroporto Fontanarossa", "Milazzo")],
+            [("CATANIA AEROPORTO FONTANAROSSA BUS", "Milazzo")]],
+    "PMO": [[("Palermo Aeroporto", "Milazzo")]],
+    "REG": [[("REGGIO CALABRIA AEROPORTO BUS", "Milazzo")],
+            [("REGGIO CALABRIA AEROPORTO BUS", "Villa S. Giovanni"),
+             ("Villa S. Giovanni", "Milazzo")]],
+}
 
 URL_BUSITALIA = ("https://www.fsbusitalia.it/it/turismo/collegamenti-aeroporti/"
                  "collegamento-aeroporto-di-venezia.html")
@@ -149,17 +168,9 @@ def hm(x):
     return x.strftime("%H:%M")
 
 
-def dt_fmt(x):
-    return "%s %s" % (fmt(x), hm(x))
-
-
 def f_durata(td):
     m = int(td.total_seconds() // 60)
     return "%dh%02d" % (m // 60, m % 60)
-
-
-def mm(m):
-    return "%02d:%02d" % ((m // 60) % 24, m % 60)
 
 
 def f_eur(p):
@@ -170,6 +181,19 @@ def f_link(link):
     return "[link alla ricerca] " + str(link) if link else ""
 
 
+def da_utc(s):
+    """Converte un orario UTC (con o senza Z) in ora italiana (CET/CEST), senza fuso."""
+    if not isinstance(s, str):
+        return None
+    try:
+        x = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if x.tzinfo is None:
+        x = x.replace(tzinfo=timezone.utc)
+    return x.astimezone(ROMA).replace(tzinfo=None)
+
+
 def ripulisci(testo):
     testo = re.sub(r"\bcirca\b\s*", "", testo, flags=re.I)
     return testo.replace("~", "")
@@ -178,15 +202,27 @@ def ripulisci(testo):
 def telegram(testo):
     testo = ripulisci(testo)
     blocchi, corrente = [], ""
-    for riga in testo.split("\n"):
-        if len(corrente) + len(riga) + 1 > 3800:
+    for p in testo.split("\n\n"):
+        if not p.strip():
+            continue
+        while len(p) > 3800:
+            taglio = p.rfind("\n", 0, 3800)
+            taglio = taglio if taglio > 0 else 3800
+            if corrente:
+                blocchi.append(corrente)
+                corrente = ""
+            blocchi.append(p[:taglio])
+            p = p[taglio:].lstrip("\n")
+        if corrente and len(corrente) + len(p) + 2 > 3800:
             blocchi.append(corrente)
             corrente = ""
-        corrente += riga + "\n"
-    blocchi.append(corrente)
+        corrente = (corrente + "\n\n" + p) if corrente else p
+    if corrente:
+        blocchi.append(corrente)
     for b in blocchi:
         dati = urllib.parse.urlencode({
-            "chat_id": TG_CHAT, "text": b, "disable_web_page_preview": "true",
+            "chat_id": TG_CHAT, "text": b, "parse_mode": "HTML",
+            "disable_web_page_preview": "true",
         }).encode()
         urllib.request.urlopen(
             "https://api.telegram.org/bot%s/sendMessage" % TG_TOKEN,
@@ -239,6 +275,11 @@ def scarta_piu(cat, motivi):
 
 def scarta(cat, motivo):
     scarta_piu(cat, [motivo])
+
+
+def scarta_voce(cat, motivo):
+    trovata(cat)
+    scarta(cat, motivo)
 
 
 def esempio(nome, obj):
@@ -384,7 +425,7 @@ def applica_messaggio(v, testo, oggi):
     return "Ho escluso %s come richiesto. Ecco le alternative." % elenco
 
 
-# ---------- Busitalia Padova Stanga <-> VCE (pronto per i voli, oggi non usato) ----------
+# ---------- Busitalia Padova Stanga <-> VCE ----------
 class LettoreTabelle(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -443,9 +484,9 @@ def coppie(dep, arr):
 def leggi_busitalia():
     try:
         req = urllib.request.Request(URL_BUSITALIA, headers={"User-Agent": UA_BROWSER})
-        html = urllib.request.urlopen(req, timeout=60).read().decode("utf-8", "ignore")
+        pagina = urllib.request.urlopen(req, timeout=60).read().decode("utf-8", "ignore")
         p = LettoreTabelle()
-        p.feed(html)
+        p.feed(pagina)
     except Exception as e:
         print("Errore Busitalia", repr(e)[:200])
         return None
@@ -487,7 +528,32 @@ def servizio_vce_attivo(giorno):
     return not (giorno.month == 12 and giorno.day == 25)
 
 
-# ---------- voli ----------
+def segmento_busitalia(direz, riferimento):
+    """ANDATA: riferimento = partenza del volo. RITORNO: riferimento = arrivo del volo a VCE."""
+    giorno = riferimento.date()
+    if not servizio_vce_attivo(giorno):
+        return None, "Busitalia non attivo il 25 dicembre"
+    base = datetime.combine(giorno, ora_t.min)
+    if direz == "ANDATA":
+        limite = riferimento - timedelta(minutes=BUFFER_VOLO)
+        utili = [(p, a) for p, a in BUS["andata"] if base + timedelta(minutes=a) <= limite]
+        if not utili:
+            return None, "nessuna corsa Busitalia utile prima del volo (margine %d minuti)" % BUFFER_VOLO
+        p, a = max(utili, key=lambda x: x[1])
+        return seg("bus", "Busitalia", "Padova-Venezia Marco Polo", "Padova Stanga via Venezia",
+                   NOME_APT["VCE"], base + timedelta(minutes=p), base + timedelta(minutes=a),
+                   BUS["prezzo"], URL_BUSITALIA), None
+    limite = riferimento + timedelta(minutes=BUFFER_TRANSITO)
+    utili = [(p, a) for p, a in BUS["ritorno"] if base + timedelta(minutes=p) >= limite]
+    if not utili:
+        return None, "nessuna corsa Busitalia utile dopo l'atterraggio (margine %d minuti)" % BUFFER_TRANSITO
+    p, a = min(utili, key=lambda x: x[0])
+    return seg("bus", "Busitalia", "Padova-Venezia Marco Polo", NOME_APT["VCE"],
+               "Padova Stanga via Venezia", base + timedelta(minutes=p),
+               base + timedelta(minutes=a), BUS["prezzo"], URL_BUSITALIA), None
+
+
+# ---------- voli: stadio 1 (Hermes / Wizz timetable) ----------
 def cerca_tariffe(x, out):
     if isinstance(x, dict):
         dt, ore, ha_ora = None, [], False
@@ -556,24 +622,111 @@ def voli(direz, nord, sud, inizio, fine, bloccate):
     return out
 
 
-def motivi_volo(v, direz):
-    """Elenca perche un volo non puo ancora far parte di una soluzione completa."""
-    motivi = []
-    if not v.get("numero"):
-        motivi.append("numero volo assente nel JSON")
-    if not v.get("ore"):
-        motivi.append("orario di partenza completo assente")
-    if not v.get("arr"):
-        motivi.append("orario di arrivo assente")
-    nord = v["o"] if direz == "ANDATA" else v["dst"]
-    sud = v["dst"] if direz == "ANDATA" else v["o"]
-    if nord != "VCE":
-        motivi.append("nessuna fonte verificata per Padova-%s" % nord)
-    motivi.append("nessuna fonte con orari e prezzo verificati per %s-Milazzo" % sud)
-    return motivi
+def scegli_live(candidati):
+    """Stadio 1: per ogni rotta tiene i giorni piu economici entro la tolleranza."""
+    per_rotta = {}
+    for v in candidati:
+        per_rotta.setdefault((v["o"], v["dst"]), []).append(v)
+    scelti = []
+    for lista in per_rotta.values():
+        lista.sort(key=lambda v: v["prezzo"])
+        minimo = lista[0]["prezzo"]
+        for v in lista[:LIVE_PER_ROTTA]:
+            if v["prezzo"] <= minimo * (1 + TOLLERANZA_HERMES):
+                scelti.append(v)
+    scelti.sort(key=lambda v: v["prezzo"])
+    return scelti[:LIVE_MAX]
 
 
-# ---------- treni e bus ----------
+# ---------- voli: stadio 2 (verifica live sulla pagina ufficiale Ryanair, mercato it/it, EUR) ----------
+def leggi_availability(js, o, dst, url):
+    out = []
+    if not isinstance(js, dict):
+        return out
+    valuta = js.get("currency")
+    trips = js.get("trips")
+    if not isinstance(trips, list):
+        return out
+    for trip in trips:
+        if not isinstance(trip, dict):
+            continue
+        if trip.get("origin") not in (None, o) or trip.get("destination") not in (None, dst):
+            continue
+        for dd in trip.get("dates") or []:
+            for f in (dd.get("flights") or []) if isinstance(dd, dict) else []:
+                segs = f.get("segments") or []
+                if len(segs) != 1:
+                    continue  # solo voli diretti
+                s0 = segs[0]
+                num = s0.get("flightNumber") or f.get("flightNumber")
+                t_utc = s0.get("timeUTC") or f.get("timeUTC")
+                t_loc = s0.get("time") or f.get("time")
+                dep = arr = None
+                if isinstance(t_utc, list) and len(t_utc) == 2:
+                    dep, arr = da_utc(t_utc[0]), da_utc(t_utc[1])
+                elif isinstance(t_loc, list) and len(t_loc) == 2:
+                    dep, arr = leggi_ora(t_loc[0]), leggi_ora(t_loc[1])
+                prezzo = None
+                for fa in (f.get("regularFare") or {}).get("fares") or []:
+                    if isinstance(fa, dict) and fa.get("type") == "ADT" and fa.get("amount") is not None:
+                        prezzo = round(float(fa["amount"]), 2)
+                        break
+                out.append({"numero": str(num).strip() if num else "", "dep": dep, "arr": arr,
+                            "prezzo": prezzo, "valuta": valuta, "link": url})
+    return out
+
+
+def verifica_live_ryanair(o, dst, giorno):
+    chiave = ("live", o, dst, giorno)
+    if chiave in CACHE:
+        return CACHE[chiave]
+    url = ("https://www.ryanair.com/it/it/trip/flights/select?adults=1&teens=0&children=0&infants=0"
+           "&dateOut=%s&originIata=%s&destinationIata=%s") % (giorno.isoformat(), o, dst)
+    risposte = []
+    errore = None
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+            try:
+                ctx = browser.new_context(locale="it-IT", timezone_id="Europe/Rome", user_agent=UA_BROWSER)
+                page = ctx.new_page()
+
+                def on_risposta(r):
+                    if "/api/booking/" in r.url and "availability" in r.url:
+                        try:
+                            risposte.append((r.status, r.json() if r.status == 200 else None))
+                        except Exception:
+                            risposte.append((r.status, None))
+
+                page.on("response", on_risposta)
+                page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                for _ in range(25):
+                    if any(js for st, js in risposte):
+                        break
+                    page.wait_for_timeout(1000)
+            finally:
+                browser.close()
+    except Exception as e:
+        errore = "verifica live non eseguibile (%s)" % repr(e)[:80]
+    voli_ok, motivo = [], errore
+    buone = [js for st, js in risposte if js]
+    if buone:
+        esempio("Ryanair live", buone[0])
+        for f in leggi_availability(buone[0], o, dst, url):
+            if f["dep"] and f["dep"].date() == giorno:
+                voli_ok.append(f)
+        if not voli_ok:
+            motivo = "nessun volo diretto %s-%s il %s nella risposta ufficiale" % (o, dst, fmt(giorno))
+    elif risposte:
+        motivo = "la pagina ufficiale ha risposto HTTP %s senza dati" % risposte[0][0]
+    elif not errore:
+        motivo = "nessuna risposta availability dalla pagina ufficiale (probabile blocco anti-bot)"
+    CACHE[chiave] = (voli_ok, motivo)
+    return CACHE[chiave]
+
+
+# ---------- treni e bus (server locale) ----------
 def nome_comp(v):
     if isinstance(v, dict):
         v = primo_top(v, ("name", "id", "code"))
@@ -684,9 +837,9 @@ def cerca_viaggi(tipo, orig, dest, giorno):
 
 
 # ---------- catene porta-a-porta ----------
-def seg(tipo, op, ident, da, a, dep, arr, prezzo, link=None, legs=None):
-    return {"tipo": tipo, "op": op, "id": ident, "da": da, "a": a,
-            "dep": dep, "arr": arr, "prezzo": prezzo, "link": link, "legs": legs or []}
+def seg(tipo, op, ident, da, a, dep, arr, prezzo, link=None, legs=None, tratta_txt=None):
+    return {"tipo": tipo, "op": op, "id": ident, "da": da, "a": a, "dep": dep, "arr": arr,
+            "prezzo": prezzo, "link": link, "legs": legs or [], "tratta_txt": tratta_txt}
 
 
 def citta(nome):
@@ -757,6 +910,103 @@ def segmento_bus(b):
                b["dep"], b["arr"], b["prezzo"], b["link"]), None
 
 
+def collegamento_sud(apt, direz, rif):
+    """Collegamento reale aeroporto <-> Milazzo (server locale). ANDATA: rif = arrivo del volo.
+    RITORNO: rif = partenza del volo."""
+    giorno = rif.date()
+    margine = timedelta(minutes=BUFFER_TRANSITO)
+    alternative = []
+    for percorso in PERCORSI_SUD.get(apt, []):
+        catena, ok = [], True
+        if direz == "ANDATA":
+            t = rif + margine
+            for a, b in percorso:
+                cand = []
+                for j in cerca_viaggi("treno", a, b, giorno):
+                    s, _ = segmento_treno(j)
+                    if s and s["dep"] >= t:
+                        cand.append(s)
+                if not cand:
+                    ok = False
+                    break
+                s = min(cand, key=lambda x: (x["prezzo"], x["dep"]))
+                catena.append(s)
+                t = s["arr"] + margine
+        else:
+            hops = [(b, a) for a, b in reversed(percorso)]
+            t = rif - timedelta(minutes=BUFFER_VOLO)
+            for a, b in reversed(hops):
+                cand = []
+                for j in cerca_viaggi("treno", a, b, giorno):
+                    s, _ = segmento_treno(j)
+                    if s and s["arr"] <= t:
+                        cand.append(s)
+                if not cand:
+                    ok = False
+                    break
+                s = min(cand, key=lambda x: (x["prezzo"], -x["arr"].timestamp()))
+                catena.insert(0, s)
+                t = s["dep"] - margine
+        if ok and catena:
+            alternative.append(catena)
+    if not alternative:
+        return None, "nessun collegamento Trenitalia/Italo %s-Milazzo con numeri, orari e prezzo completi nello stesso giorno" % apt
+    return min(alternative, key=lambda c: (sum(s["prezzo"] for s in c), c[-1]["arr"])), None
+
+
+def costruisci_catena_volo(direz, f, o, dst):
+    andata = direz == "ANDATA"
+    if f["valuta"] != "EUR":
+        return None, "valuta non EUR (%s)" % f["valuta"]
+    if not (f["numero"] and f["dep"] and f["arr"]) or f["prezzo"] is None:
+        return None, "dati del volo incompleti (numero, orari o prezzo)"
+    volo = seg("volo", "Ryanair", f["numero"], NOME_APT[o], NOME_APT[dst], f["dep"], f["arr"],
+               f["prezzo"], f["link"], None, "%s → %s" % (o, dst))
+    nord_seg, perche = segmento_busitalia(direz, f["dep"] if andata else f["arr"])
+    if not nord_seg:
+        return None, perche
+    sud = dst if andata else o
+    coll, perche = collegamento_sud(sud, direz, f["arr"] if andata else f["dep"])
+    if not coll:
+        return None, perche
+    catena = [nord_seg, volo] + coll if andata else coll + [volo, nord_seg]
+    return catena, None
+
+
+def catene_voli(direz, voli_l):
+    andata = direz == "ANDATA"
+    cand = []
+    for v in voli_l:
+        nord = v["o"] if andata else v["dst"]
+        if v["comp"] != "Ryanair":
+            scarta_voce("Voli non verificabili", "%s: nessuna verifica live implementata" % v["comp"])
+        elif nord != "VCE":
+            scarta_voce("Voli non verificabili", "nessuna fonte verificata per Padova-%s" % nord)
+        else:
+            cand.append(v)
+    cat = "Voli Ryanair (verifica live)"
+    out = []
+    for v in scegli_live(cand):
+        live, motivo = verifica_live_ryanair(v["o"], v["dst"], v["data"])
+        conta("Ryanair live", bool(live))
+        if not live:
+            scarta_voce(cat, motivo or "nessun volo diretto restituito dalla pagina ufficiale")
+            continue
+        for f in live:
+            trovata(cat)
+            catena, perche = costruisci_catena_volo(direz, f, v["o"], v["dst"])
+            if not catena:
+                scarta(cat, perche)
+                continue
+            problema = valida_catena(catena, direz)
+            if problema:
+                scarta(cat, problema)
+                continue
+            out.append({"segmenti": catena, "tipo": "Volo",
+                        "totale": round(sum(s["prezzo"] for s in catena), 2)})
+    return out
+
+
 def catene_treno_diretto(direz, giorni):
     cat = "Treno diretto Padova-Milazzo"
     o, dst = ("Padova", "Milazzo") if direz == "ANDATA" else ("Milazzo", "Padova")
@@ -772,7 +1022,7 @@ def catene_treno_diretto(direz, giorni):
             if problema:
                 scarta(cat, problema)
                 continue
-            out.append({"segmenti": [s], "totale": s["prezzo"]})
+            out.append({"segmenti": [s], "tipo": "Treno", "totale": round(s["prezzo"], 2)})
     return out
 
 
@@ -814,49 +1064,118 @@ def catene_flix(direz, giorni):
             if problema:
                 scarta(cat, problema)
                 continue
-            out.append({"segmenti": catena, "totale": catena[0]["prezzo"] + catena[1]["prezzo"]})
+            out.append({"segmenti": catena, "tipo": "FlixBus + treno",
+                        "totale": round(catena[0]["prezzo"] + catena[1]["prezzo"], 2)})
     return out
 
 
-# ---------- report ----------
-def righe_soluzione(i, sol):
-    segs = sol["segmenti"]
-    inizio, fine = segs[0]["dep"], segs[-1]["arr"]
-    righe = ["%d) %s → %s | TOTALE %s | durata %s" % (
-        i, dt_fmt(inizio), dt_fmt(fine), f_eur(sol["totale"]), f_durata(fine - inizio))]
+# ---------- combinazioni A/R e report ----------
+def combina(andata, ritorno):
+    a = sorted(andata, key=lambda s: s["totale"])[:3]
+    r = sorted(ritorno, key=lambda s: s["totale"])[:3]
+    combo = []
+    for x in a:
+        for y in r:
+            if y["segmenti"][0]["dep"] > x["segmenti"][-1]["arr"]:
+                combo.append((x, y, round(x["totale"] + y["totale"], 2)))
+    combo.sort(key=lambda c: c[2])
+    return combo[:3]
+
+
+def etichetta_mezzo(t):
+    da, a = (t.get("da") or "").lower(), (t.get("a") or "").lower()
+    if "bus" in (da + " " + a).split():
+        return "Autobus"
+    if (da.startswith("villa s") and a.startswith("messina")) or (a.startswith("villa s") and da.startswith("messina")):
+        return "Attraversamento Stretto (nave)"
+    return "Treno"
+
+
+def orari_txt(dep, arr, base):
+    a = hm(dep) + (" (%s)" % fmt(dep) if dep.date() != base else "")
+    b = hm(arr) + (" (%s)" % fmt(arr) if arr.date() != base else "")
+    return "Partenza %s → Arrivo %s" % (a, b)
+
+
+def indice_principale(segs):
     for k, s in enumerate(segs):
-        if s["tipo"] == "treno":
-            for tratta in s["legs"]:
-                righe.append("   Treno %s %s → %s | %s → %s" % (
-                    tratta["num"], tratta["da"], tratta["a"], dt_fmt(tratta["dep"]), dt_fmt(tratta["arr"])))
-            righe.append("   prezzo %s %s %s" % (s["op"], f_eur(s["prezzo"]), f_link(s["link"])))
-        elif s["tipo"] == "bus":
-            linea = (" " + s["id"]) if s["id"] else ""
-            righe.append("   %s%s %s → %s | %s → %s | %s %s" % (
-                s["op"], linea, s["da"], s["a"], dt_fmt(s["dep"]), dt_fmt(s["arr"]),
-                f_eur(s["prezzo"]), f_link(s["link"])))
-        if k < len(segs) - 1:
-            righe.append("   attesa a %s: %s" % (s["a"], f_durata(segs[k + 1]["dep"] - s["arr"])))
+        if s["tipo"] == "volo":
+            return k
+    return max(range(len(segs)), key=lambda k: segs[k]["arr"] - segs[k]["dep"])
+
+
+def righe_dettaglio(s, base, ruolo):
+    P = "     - "
+    r = []
+    tratta = s.get("tratta_txt") or "%s → %s" % (s["da"], s["a"])
+    if ruolo == "principale":
+        r.append(P + "Operatore / Compagnia: " + esc(s["op"]))
+        if s["id"]:
+            r.append(P + "Identificativo (Volo o N. Treno): " + esc(("Treno " + s["id"]) if s["tipo"] == "treno" else s["id"]))
+        r.append(P + "Tratta: " + esc(tratta))
+        r.append(P + "Orario: %s%s" % (orari_txt(s["dep"], s["arr"], base),
+                                        " (in ora italiana)" if s["tipo"] == "volo" else ""))
+        for t in s["legs"]:
+            r.append(P + "Dettaglio: %s %s %s → %s, %s" % (
+                etichetta_mezzo(t), esc(t["num"]), esc(t["da"]), esc(t["a"]), orari_txt(t["dep"], t["arr"], base)))
+        r.append(P + "Costo: %s%s" % (f_eur(s["prezzo"]),
+                                       " (prezzo reale verificato live)" if s["tipo"] == "volo" else ""))
+    elif s["legs"]:
+        for t in s["legs"]:
+            r.append(P + "Mezzo e Tratta: %s %s, %s → %s | %s" % (
+                etichetta_mezzo(t), esc(t["num"]), esc(t["da"]), esc(t["a"]), orari_txt(t["dep"], t["arr"], base)))
+        r.append(P + "Costo: " + f_eur(s["prezzo"]))
+    else:
+        r.append(P + "Operatore / Linea: %s%s" % (esc(s["op"]), (" " + esc(s["id"])) if s["id"] else ""))
+        r.append(P + "Tratta: " + esc(tratta))
+        r.append(P + "Orario: " + orari_txt(s["dep"], s["arr"], base))
+        r.append(P + "Costo: " + f_eur(s["prezzo"]))
+    if s["link"]:
+        r.append(P + "Link: " + esc(f_link(s["link"])))
+    return r
+
+
+def righe_direzione(direz, segs):
+    andata = direz == "ANDATA"
+    base = segs[0]["dep"].date()
+    k = indice_principale(segs)
+    numeri = ["1️⃣", "2️⃣", "3️⃣"]
+    n = 0
+    righe = ["%s <b>%s (Data: %s)</b>" % ("🟢" if andata else "🔵", "Andata" if andata else "Ritorno",
+                                           segs[0]["dep"].strftime("%d/%m/%Y"))]
+    if k > 0:
+        righe.append("  %s <b>Trasferimento Locale (%s → %s):</b>" % (numeri[n], esc(segs[0]["da"]), esc(segs[k - 1]["a"])))
+        n += 1
+        for s in segs[:k]:
+            righe += righe_dettaglio(s, base, "locale")
+    principale = segs[k]
+    nome_mezzo = {"volo": "Volo", "treno": "Treno", "bus": "Autobus"}.get(principale["tipo"], "Mezzo")
+    righe.append("  %s <b>Tratta Principale (%s):</b>" % (numeri[n], nome_mezzo))
+    n += 1
+    righe += righe_dettaglio(principale, base, "principale")
+    if k < len(segs) - 1:
+        righe.append("  %s <b>Tratta di Collegamento / Attraversamento:</b>" % numeri[n])
+        for s in segs[k + 1:]:
+            righe += righe_dettaglio(s, base, "collegamento")
+    fine = segs[-1]["arr"]
+    righe.append("")
+    righe.append("🏁 <b>Arrivo previsto a %s:</b> ore %s%s (perfettamente sincronizzato)." % (
+        "Milazzo" if andata else "Padova", hm(fine), (" (%s)" % fmt(fine)) if fine.date() != base else ""))
     return righe
 
 
-def sezione_nuova(direz, titolo, gruppi):
-    righe = [direz + ": " + titolo]
-    tutte = []
-    for nome, sols in gruppi:
-        righe.append(nome)
-        if not sols:
-            righe.append("Nessuna soluzione completa e verificata.")
-            continue
-        for i, s in enumerate(sorted(sols, key=lambda x: x["totale"])[:3], 1):
-            righe += righe_soluzione(i, s)
-        tutte += [(s["totale"], nome, s) for s in sols]
-    if tutte:
-        tot, nome, s = min(tutte, key=lambda x: x[0])
-        righe.append("MIGLIORE %s: %.2f € (%s, partenza %s)" % (
-            direz, tot, nome, dt_fmt(s["segmenti"][0]["dep"])))
-    else:
-        righe.append("Nessuna soluzione senza pernottamento, completa e verificata per queste date.")
+def righe_ar(i, a, r, tot):
+    righe = ["✈️ <b>SOLUZIONE CONSIGLIATA [%d]</b> — <b>Totale: %s</b>" % (i, f_eur(tot)), ""]
+    righe += righe_direzione("ANDATA", a["segmenti"])
+    righe.append("")
+    righe += righe_direzione("RITORNO", r["segmenti"])
+    righe.append("")
+    return righe
+
+
+def righe_solo(direz, i, s):
+    righe = ["✈️ <b>SOLO %s [%d]</b> — <b>Totale: %s</b>" % (direz, i, f_eur(s["totale"])), ""]
+    righe += righe_direzione(direz, s["segmenti"])
     righe.append("")
     return righe
 
@@ -866,7 +1185,6 @@ def simula():
     ora_ora = adesso()
     oggi = ora_ora.date()
     ga = oggi + timedelta(days=30)
-    ga1 = ga + timedelta(days=1)
     gr = oggi + timedelta(days=37)
     gr1 = gr + timedelta(days=1)
 
@@ -880,60 +1198,56 @@ def simula():
         return {"num": num, "da": da, "a": a, "dep": dep, "arr": arr}
 
     def sol(*segs):
-        return {"segmenti": list(segs), "totale": sum(s["prezzo"] for s in segs)}
+        return {"segmenti": list(segs), "totale": round(sum(s["prezzo"] for s in segs), 2), "tipo": "Fittizio"}
 
-    treno_a = S("treno", "Treno Fittizio", "FITT-100 + FITT-200", "Padova", "Milazzo",
-                h(ga, 7, 56), h(ga, 20, 19), 44.44,
-                [T("FITT-100", "Padova", "Napoli Centrale", h(ga, 7, 56), h(ga, 12, 48)),
-                 T("FITT-200", "Napoli Centrale", "Milazzo", h(ga, 13, 45), h(ga, 20, 19))])
-    bus_a = S("bus", "Bus Fittizio", "LINEA-FITT-1", "Padova", "Messina",
-              h(ga, 17, 10), h(ga1, 11, 5), 33.33)
-    reg_a = S("treno", "Treno Fittizio", "FITT-300", "Messina Centrale", "Milazzo",
-              h(ga1, 12, 15), h(ga1, 12, 45), 2.22,
-              [T("FITT-300", "Messina Centrale", "Milazzo", h(ga1, 12, 15), h(ga1, 12, 45))])
-    treno_r = S("treno", "Treno Fittizio", "FITT-500 + FITT-600", "Milazzo", "Padova",
-                h(gr, 9, 40), h(gr, 22, 27), 55.55,
-                [T("FITT-500", "Milazzo", "Roma Termini", h(gr, 9, 40), h(gr, 15, 0)),
-                 T("FITT-600", "Roma Termini", "Padova", h(gr, 15, 30), h(gr, 22, 27))])
-    reg_r = S("treno", "Treno Fittizio", "FITT-400", "Milazzo", "Messina Centrale",
+    bus_n = S("bus", "Bus Fittizio", "LINEA-FITT-N", "Padova Stanga via Venezia", "Venezia Marco Polo",
+              h(ga, 6, 5), h(ga, 6, 45), 11.11)
+    volo = S("volo", "Compagnia Fittizia", "XX 100", "Venezia Marco Polo", "Reggio Calabria Aeroporto",
+             h(ga, 8, 15), h(ga, 9, 40), 22.22)
+    volo["tratta_txt"] = "VCE → REG"
+    hop1 = S("treno", "Operatore Fittizio", "FITT-B1", "REGGIO CALABRIA AEROPORTO BUS", "Villa S. Giovanni",
+             h(ga, 10, 45), h(ga, 11, 20), 3.33,
+             [T("FITT-B1", "REGGIO CALABRIA AEROPORTO BUS", "Villa S. Giovanni", h(ga, 10, 45), h(ga, 11, 20))])
+    hop2 = S("treno", "Operatore Fittizio", "FITT-N1 + FITT-T2", "Villa S. Giovanni", "Milazzo",
+             h(ga, 12, 30), h(ga, 14, 5), 4.44,
+             [T("FITT-N1", "Villa S. Giovanni", "Messina Centrale", h(ga, 12, 30), h(ga, 13, 10)),
+              T("FITT-T2", "Messina Centrale", "Milazzo", h(ga, 13, 35), h(ga, 14, 5))])
+    andata_s = sol(bus_n, volo, hop1, hop2)
+
+    reg_r = S("treno", "Operatore Fittizio", "FITT-R1", "Milazzo", "Messina Centrale",
               h(gr, 17, 54), h(gr, 18, 27), 2.22,
-              [T("FITT-400", "Milazzo", "Messina Centrale", h(gr, 17, 54), h(gr, 18, 27))])
-    bus_r = S("bus", "Bus Fittizio", "LINEA-FITT-2", "Messina", "Padova",
-              h(gr, 20, 15), h(gr1, 14, 25), 44.44)
+              [T("FITT-R1", "Milazzo", "Messina Centrale", h(gr, 17, 54), h(gr, 18, 27))])
+    bus_r = S("bus", "Bus Fittizio", "", "Messina", "Padova", h(gr, 20, 15), h(gr1, 14, 25), 44.44)
+    ritorno_s = sol(reg_r, bus_r)
 
-    # Autotest del validatore (dati inventati)
-    ok_valida = (valida_catena([treno_a], "ANDATA") is None
-                 and valida_catena([bus_a, reg_a], "ANDATA") is None
-                 and valida_catena([reg_r, bus_r], "RITORNO") is None
-                 and valida_catena([treno_r], "RITORNO") is None)
-    stretta = dict(reg_a)
-    stretta["dep"], stretta["arr"] = h(ga1, 11, 10), h(ga1, 11, 40)
-    senza_id = dict(treno_a)
+    # Autotest (dati inventati): validatore e conversione UTC -> ora italiana
+    ok_valide = (valida_catena(andata_s["segmenti"], "ANDATA") is None
+                 and valida_catena(ritorno_s["segmenti"], "RITORNO") is None)
+    stretta = list(andata_s["segmenti"])
+    stretta[2] = dict(hop1)
+    stretta[2]["dep"], stretta[2]["arr"] = h(ga, 10, 0), h(ga, 10, 30)
+    senza_id = dict(volo)
     senza_id["id"] = ""
-    fuori_citta = dict(reg_a)
-    fuori_citta["da"] = "Catania Centrale"
-    ko = (valida_catena([bus_a, stretta], "ANDATA") is not None,
-          valida_catena([senza_id], "ANDATA") is not None,
-          valida_catena([bus_a, fuori_citta], "ANDATA") is not None,
-          valida_catena([treno_a], "RITORNO") is not None)
-    esito_test = "PASS" if (ok_valida and all(ko)) else "FAIL (soluzioni valide=%s, scarti attesi=%s)" % (ok_valida, ko)
+    geo = dict(hop1)
+    geo["da"] = "Catania Aeroporto"
+    ko = (valida_catena(stretta, "ANDATA") is not None,
+          valida_catena([bus_n, senza_id, hop1, hop2], "ANDATA") is not None,
+          valida_catena([bus_n, volo, geo, hop2], "ANDATA") is not None,
+          valida_catena(ritorno_s["segmenti"], "ANDATA") is not None)
+    ok_tz = (da_utc("2026-12-18T05:25:00.000Z") == datetime(2026, 12, 18, 6, 25)
+             and da_utc("2027-07-15T05:25:00Z") == datetime(2027, 7, 15, 7, 25))
+    esito_test = "PASS" if (ok_valide and all(ko) and ok_tz) else \
+        "FAIL (valide=%s, scarti attesi=%s, fusi orari=%s)" % (ok_valide, ko, ok_tz)
 
-    corpo = ["REPORT VIAGGI - SIMULAZIONE", "Aggiornato: %s %s" % (fmt(ora_ora), hm(ora_ora)), ""]
-    corpo += sezione_nuova("ANDATA", "Padova → Milazzo", [
-        ("VOLI", []),
-        ("TRENO diretto Padova-Milazzo", [sol(treno_a)]),
-        ("FLIXBUS + treno regionale", [sol(bus_a, reg_a)])])
-    corpo += sezione_nuova("RITORNO", "Milazzo → Padova", [
-        ("VOLI", []),
-        ("TRENO diretto Padova-Milazzo", [sol(treno_r)]),
-        ("FLIXBUS + treno regionale", [sol(reg_r, bus_r)])])
-    corpo += ["AUTOTEST VALIDATORE: " + esito_test]
+    corpo = ["<b>REPORT VIAGGI - SIMULAZIONE</b>", "Aggiornato: %s %s" % (fmt(ora_ora), hm(ora_ora)), ""]
+    corpo += righe_ar(1, andata_s, ritorno_s, round(andata_s["totale"] + ritorno_s["totale"], 2))
+    corpo += ["AUTOTEST VALIDATORE E FUSI ORARI: " + esito_test]
 
-    righe = ["TEST – DATI NON REALI",
+    righe = ["<b>TEST – DATI NON REALI</b>",
              "Simulazione: nessuna chiamata a API o siti di trasporto.", ""]
     righe += ["[FITTIZIO] " + r if r.strip() else r for r in corpo]
-    righe += ["TEST – DATI NON REALI: date, numeri di treno, linee, importi e link sono inventati.",
-              "Serve solo a verificare la formattazione e il validatore."]
+    righe += ["", "<b>TEST – DATI NON REALI</b>: date, numeri, linee, importi e link sono inventati.",
+              "Serve solo a verificare formattazione, validatore e conversione oraria."]
     testo = "\n".join(righe)
     print(testo)
     if TG_TOKEN and TG_CHAT:
@@ -987,22 +1301,16 @@ def main():
                      "aggiorna lo script." % ORIZZONTE_GIORNI)
         return
 
+    BUS.update(carica_bus())
+
     nome, a_da, a_a, r_da, r_a = evento
     domani = oggi + timedelta(days=1)
-    finestre = (("ANDATA", "Padova → Milazzo", max(d(a_da), domani), d(a_a)),
-                ("RITORNO", "Milazzo → Padova", max(d(r_da), domani), d(r_a)))
+    finestre = (("ANDATA", max(d(a_da), domani), d(a_a)),
+                ("RITORNO", max(d(r_da), domani), d(r_a)))
 
-    righe = ["REPORT VIAGGI - " + nome, "Aggiornato: %s %s" % (fmt(ora_ora), hm(ora_ora))]
-    if REALE_MANUALE:
-        righe.append("Esecuzione manuale in modalità reale: solo dati ottenuti dalle fonti.")
-    if nota:
-        righe.append(nota)
-    if bloccate:
-        righe.append("Date escluse: " + ", ".join(fmt(d(x)) for x in sorted(bloccate)))
-    righe.append("")
-
-    for direz, titolo, ini, fin in finestre:
-        treni_s, flix_s = [], []
+    SOL = {}
+    for direz, ini, fin in finestre:
+        sols = []
         if ini <= fin:
             giorni = [ini + timedelta(days=i) for i in range((fin - ini).days + 1)]
             giorni = [g for g in giorni if g.isoformat() not in bloccate]
@@ -1010,35 +1318,52 @@ def main():
             for nord in AEROPORTI_NORD:
                 for sud in AEROPORTI_SUD:
                     voli_l += voli(direz, nord, sud, ini, fin, bloccate)
-            for v in voli_l:
-                trovata("Voli")
-                scarta_piu("Voli", motivi_volo(v, direz))
+            sols += catene_voli(direz, voli_l)
             scelti = scegli(giorni, DATE_TRENO)
-            treni_s = catene_treno_diretto(direz, scelti)
-            flix_s = catene_flix(direz, scelti)
-        righe += sezione_nuova(direz, titolo, [
-            ("VOLI", []),
-            ("TRENO diretto Padova-Milazzo", treni_s),
-            ("FLIXBUS + treno regionale", flix_s)])
+            sols += catene_treno_diretto(direz, scelti)
+            sols += catene_flix(direz, scelti)
+        SOL[direz] = sols
 
-    righe.append("RIEPILOGO CONTROLLI (nel report compaiono solo soluzioni complete e verificate)")
+    righe = ["<b>REPORT VIAGGI - %s</b>" % esc(nome),
+             "Aggiornato: %s %s (ora italiana)" % (fmt(ora_ora), hm(ora_ora))]
+    if REALE_MANUALE:
+        righe.append("Esecuzione manuale in modalità reale: solo dati ottenuti dalle fonti.")
+    if nota:
+        righe.append(esc(nota))
+    if bloccate:
+        righe.append("Date escluse: " + esc(", ".join(fmt(d(x)) for x in sorted(bloccate))))
+    righe.append("Soluzioni complete trovate: andata %d, ritorno %d" % (len(SOL["ANDATA"]), len(SOL["RITORNO"])))
+    righe.append("")
+
+    combo = combina(SOL["ANDATA"], SOL["RITORNO"])
+    if combo:
+        for i, (a, r, tot) in enumerate(combo, 1):
+            righe += righe_ar(i, a, r, tot)
+    else:
+        righe.append("Nessuna soluzione A/R completa e verificata per queste date.")
+        righe.append("")
+        for direz in ("ANDATA", "RITORNO"):
+            for i, s in enumerate(sorted(SOL[direz], key=lambda x: x["totale"])[:3], 1):
+                righe += righe_solo(direz, i, s)
+
+    righe.append("<b>RIEPILOGO CONTROLLI</b> (nel report compaiono solo soluzioni complete e verificate)")
     for cat, (tr, sc) in sorted(CONTI.items()):
-        righe.append("%s: %d trovate, %d scartate" % (cat, tr, sc))
+        righe.append(esc("%s: %d trovate, %d scartate" % (cat, tr, sc)))
         for (c2, motivo), n in sorted(MOTIVI.items()):
             if c2 == cat:
-                righe.append("   %s: %d" % (motivo, n))
-    righe.append("Fonti (ricerche riuscite): " + ", ".join(
-        "%s %d/%d" % (n, f[0], f[1]) for n, f in FONTI.items()))
+                righe.append(esc("   %s: %d" % (motivo, n)))
+    righe.append(esc("Fonti (ricerche riuscite): " + ", ".join(
+        "%s %d/%d" % (n, f[0], f[1]) for n, f in FONTI.items())))
     if ESITI:
-        righe.append("Esiti ricerche: " + "; ".join(
-            "%s %s x%d" % (f, e, n) for (f, e), n in sorted(ESITI.items())))
+        righe.append(esc("Esiti ricerche: " + "; ".join(
+            "%s %s x%d" % (f, e, n) for (f, e), n in sorted(ESITI.items()))))
     for (fonte, codice), e in sorted(ERRORI_FONTI.items()):
-        righe.append("ERRORE FONTE %s %s x%d (%s): %s" % (
-            fonte, codice, e["n"], "; ".join(e["tratte"]), e["msg"]))
+        righe.append(esc("ERRORE FONTE %s %s x%d (%s): %s" % (
+            fonte, codice, e["n"], "; ".join(e["tratte"]), e["msg"])))
     for n, s in NON_LEGGIBILI.items():
-        righe.append("Dati non leggibili da %s, esempio: %s" % (n, s))
+        righe.append(esc("Dati non leggibili da %s, esempio: %s" % (n, s)))
     righe.append("I link portano alla pagina di ricerca del vettore, non alla singola corsa.")
-    righe.append("Itabus escluso (inaffidabile). Italo incluso solo se restituisce corse.")
+    righe.append("Wizz Air non è verificabile live: escluso. Itabus escluso (inaffidabile).")
     telegram("\n".join(righe))
 
 
