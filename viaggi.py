@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -90,13 +91,20 @@ NOME_APT = {"VCE": "Venezia Marco Polo", "TSF": "Treviso Aeroporto", "VRN": "Ver
 TOLLERANZA_HERMES = 0.30
 LIVE_PER_ROTTA = 2       # giorni verificati live per ogni rotta
 LIVE_MAX = 6             # verifiche live massime per direzione e per compagnia
+PAUSA_SERVER = 1.1       # secondi tra due richieste al server locale (limite 60 al minuto)
+PAUSA_WIZZ = 10          # secondi di pausa prima di ogni verifica live Wizz Air
 
 # Collegamenti aeroporto -> Milazzo cercati sul server locale (Trenitalia).
-# I luoghi con suffisso BUS danno HTTP 503 e non si usano. Una lista vuota = nessuna fonte verificata.
+# CTA ha anche Giuntabus (pagina di prenotazione). I luoghi con suffisso BUS danno HTTP 503.
+# REG: i nomi stazione sono da verificare (vedi righe LUOGHI nel log); ogni tratta compare
+# solo se il server restituisce numero, orari e prezzo.
 PERCORSI_SUD = {
     "CTA": [[("Catania Aeroporto Fontanarossa", "Milazzo")]],
     "PMO": [[("Palermo Aeroporto", "Milazzo")]],
-    "REG": [],
+    "REG": [[("Reggio Calabria Aeroporto", "Milazzo")],
+            [("Reggio Calabria Aeroporto", "Villa S. Giovanni"), ("Villa S. Giovanni", "Milazzo")],
+            [("Reggio Calabria Aeroporto", "Villa S. Giovanni"),
+             ("Villa S. Giovanni", "Messina Centrale"), ("Messina Centrale", "Milazzo")]],
 }
 
 # Italo non serve Sicilia e sud: escluso dalle ricerche che coinvolgono questi nodi.
@@ -640,7 +648,7 @@ def scegli_live(candidati):
 
 # ---------- voli: stadio 2 (verifica live sulle pagine ufficiali, mercato italiano, EUR) ----------
 def da_flightkey(chiave):
-    """Esempio Ryanair: 'FR~8597~ ~~VCE~12/17/2026 10:00~REG~12/17/2026 11:40~~' (orari locali)."""
+    """Esempio Ryanair: 'FR~ 531~ ~~VCE~12/16/2026 07:25~PMO~12/16/2026 09:00~~' (orari locali)."""
     p = chiave.split("~") if isinstance(chiave, str) else []
     if len(p) >= 8:
         try:
@@ -704,7 +712,8 @@ def cattura_risposte(url, filtro_url):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
             try:
-                ctx = browser.new_context(locale="it-IT", timezone_id="Europe/Rome", user_agent=UA_BROWSER)
+                ctx = browser.new_context(locale="it-IT", timezone_id="Europe/Rome", user_agent=UA_BROWSER,
+                                          extra_http_headers={"Accept-Language": "it-IT,it;q=0.9,en;q=0.8"})
                 page = ctx.new_page()
 
                 def on_risposta(r):
@@ -803,7 +812,11 @@ def verifica_live_wizz(o, dst, giorno, ora_listino, prezzo_listino):
         return CACHE[chiave]
     url = "https://www.wizzair.com/it-it/booking/select-flight/%s/%s/%s/null/1/0/0/null" % (
         o, dst, giorno.isoformat())
+    time.sleep(PAUSA_WIZZ)
     risposte, errore = cattura_risposte(url, ("/api/search/search",))
+    if not any(js for st, js in risposte) and any(st == 429 for st, js in risposte):
+        time.sleep(45)  # limite di richieste (HTTP 429): attesa e un nuovo tentativo
+        risposte, errore = cattura_risposte(url, ("/api/search/search",))
     voli_ok, motivo = [], None
     buone = [js for st, js in risposte if js]
     if buone:
@@ -896,7 +909,12 @@ def cerca_viaggi(tipo, orig, dest, giorno):
     url = "%s/%s?origin=%s&destination=%s&date=%s&adults=1&children=0%s" % (
         SERVER, percorso, urllib.parse.quote(orig), urllib.parse.quote(dest),
         giorno.isoformat(), extra)
+    time.sleep(PAUSA_SERVER)
+    ULT_ERR[0] = ""
     js = get_json(url)
+    if js is None and ULT_ERR[0] == "HTTP 503":
+        time.sleep(6)  # errore temporaneo del server locale: un nuovo tentativo
+        js = get_json(url)
     out = []
     if js is None:
         conta(nome, False)
@@ -929,6 +947,15 @@ def cerca_viaggi(tipo, orig, dest, giorno):
             NON_LEGGIBILI.setdefault(nome, json.dumps(lista[0], default=str)[:300])
     CACHE[chiave] = out
     return out
+
+
+def stampa_luoghi(query):
+    """Diagnostica: stampa nel log i nomi dei luoghi che il server conosce per una ricerca."""
+    js = get_json("%s/train-locations?query=%s" % (SERVER, urllib.parse.quote(query)))
+    if isinstance(js, dict):
+        nomi = ["%s:%s" % (l.get("provider"), l.get("name"))
+                for l in (js.get("locations") or []) if isinstance(l, dict)]
+        print("LUOGHI", query, " | ".join(nomi[:40]))
 
 
 # ---------- catene porta-a-porta ----------
@@ -1005,23 +1032,43 @@ def segmento_bus(b):
                b["dep"], b["arr"], b["prezzo"], b["link"]), None
 
 
-def diagnostica_giuntabus(direz, giorno):
-    """Legge la pagina Giuntabus e ne stampa il testo nel log (riga GIUNTABUS TESTO).
-    Orari e prezzi NON vengono usati finche la struttura della pagina non e verificata."""
+def corse_giuntabus(direz, giorno):
+    """Corse reali Giuntabus (pagina di prenotazione) tra Catania Aeroporto e Milazzo."""
     chiave = ("giuntabus", direz, giorno)
     if chiave in CACHE:
-        return
-    CACHE[chiave] = True
+        return CACHE[chiave]
     da, a = ("Catania Aeroporto", "Milazzo") if direz == "ANDATA" else ("Milazzo", "Catania Aeroporto")
+    corse = []
     try:
         import giuntabus
-        giuntabus.leggi(da, a, giorno)
+        corse = giuntabus.leggi(da, a, giorno)["corse"]
+        conta("Giuntabus", bool(corse))
     except Exception as e:
         print("Errore Giuntabus", repr(e)[:200])
+        conta("Giuntabus", False)
+    CACHE[chiave] = corse
+    return corse
+
+
+def alternativa_giuntabus(direz, rif):
+    """ANDATA: rif = arrivo del volo a CTA. RITORNO: rif = partenza del volo da CTA."""
+    corse = corse_giuntabus(direz, rif.date())
+    if direz == "ANDATA":
+        cand = [c for c in corse if c["dep"] >= rif + timedelta(minutes=BUFFER_TRANSITO)]
+        if not cand:
+            return None
+        c = min(cand, key=lambda x: (x["prezzo"], x["dep"]))
+    else:
+        limite = rif - timedelta(minutes=BUFFER_VOLO)
+        cand = [c for c in corse if c["arr"] <= limite]
+        if not cand:
+            return None
+        c = min(cand, key=lambda x: (x["prezzo"], -x["arr"].timestamp()))
+    return [seg("bus", "Giuntabus", "", c["da"], c["a"], c["dep"], c["arr"], c["prezzo"], c.get("link"))]
 
 
 def collegamento_sud(apt, direz, rif):
-    """Collegamento reale aeroporto <-> Milazzo (server locale). ANDATA: rif = arrivo del volo.
+    """Collegamento reale aeroporto <-> Milazzo. ANDATA: rif = arrivo del volo.
     RITORNO: rif = partenza del volo."""
     giorno = rif.date()
     margine = timedelta(minutes=BUFFER_TRANSITO)
@@ -1059,12 +1106,14 @@ def collegamento_sud(apt, direz, rif):
                 t = s["dep"] - margine
         if ok and catena:
             alternative.append(catena)
+    if apt == "CTA":
+        gb = alternativa_giuntabus(direz, rif)
+        if gb:
+            alternative.append(gb)
     if alternative:
         return min(alternative, key=lambda c: (sum(s["prezzo"] for s in c), c[-1]["arr"])), None
-    motivo = "nessun collegamento Trenitalia %s-Milazzo con numeri, orari e prezzo completi nello stesso giorno" % apt
-    if apt == "CTA":
-        diagnostica_giuntabus(direz, giorno)
-        motivo += "; Giuntabus: pagina letta ma orari e prezzi non ancora interpretati (vedi GIUNTABUS TESTO nel log)"
+    motivo = "nessun collegamento %s-Milazzo con numeri, orari e prezzo completi nello stesso giorno (Trenitalia%s)" % (
+        apt, " e Giuntabus" if apt == "CTA" else "")
     return None, motivo
 
 
@@ -1271,6 +1320,33 @@ def sezioni_top(SOL):
 
 
 # ---------- simulazione (dati inventati, nessuna chiamata) ----------
+# Testo reale di una pagina Giuntabus (struttura osservata nel log del 18/11/2026), usato per l'autotest.
+ESEMPIO_GIUNTABUS = "\n".join([
+    "Salta al contenuto", "IT", "Accedi", "Giuntabus Srl", "Indietro", "Catania Aeroporto", "Milazzo",
+    "17/12/2026", "1 Passeggero", "Modifica ricerca", "ANDATA", "Abbonamenti su questa tratta",
+    "slide 30 to 34 of 410", "Mar 15 dic", "€ 13,00", "Mer 16 dic", "€ 13,00", "Gio 17 dic", "€ 13,00",
+    "11:00", "Catania", "Aeroporto - Terminal Arrivi", "Durata", "2h", "13:00", "Milazzo", "Porto",
+    "Prezzo totale", "€ 13,00", "Posti disponibili", "Seleziona", "Info viaggio",
+    "15:30", "Catania", "Aeroporto - Terminal Arrivi", "Durata", "2h", "17:30", "Milazzo", "Porto",
+    "Prezzo totale", "€ 13,00", "Posti disponibili", "Seleziona", "Info viaggio"])
+
+
+def test_giuntabus():
+    try:
+        import giuntabus
+        corse = giuntabus.interpreta(ESEMPIO_GIUNTABUS, date(2026, 12, 17))
+        return (len(corse) == 2
+                and corse[0]["dep"] == datetime(2026, 12, 17, 11, 0)
+                and corse[0]["arr"] == datetime(2026, 12, 17, 13, 0)
+                and corse[0]["prezzo"] == 13.0
+                and corse[0]["da"] == "Catania Aeroporto - Terminal Arrivi"
+                and corse[0]["a"] == "Milazzo Porto"
+                and corse[1]["dep"] == datetime(2026, 12, 17, 15, 30))
+    except Exception as e:
+        print("Autotest Giuntabus:", repr(e)[:100])
+        return False
+
+
 def simula():
     ora_ora = adesso()
     oggi = ora_ora.date()
@@ -1307,7 +1383,7 @@ def simula():
     bus_r = S("bus", "Bus Fittizio", "", "Messina", "Padova", h(gr, 20, 15), h(gr1, 14, 25), 44.44)
     ritorno_s = sol(reg_r, bus_r)
 
-    # Autotest (dati inventati): validatore e conversione UTC -> ora italiana
+    # Autotest (dati inventati o testi reali di esempio): validatore, fusi orari, chiavi volo, Giuntabus
     ok_valide = (valida_catena(andata_s["segmenti"], "ANDATA") is None
                  and valida_catena(ritorno_s["segmenti"], "RITORNO") is None)
     stretta = dict(hop)
@@ -1322,20 +1398,22 @@ def simula():
           valida_catena(ritorno_s["segmenti"], "ANDATA") is not None)
     ok_tz = (da_utc("2026-12-18T05:25:00.000Z") == datetime(2026, 12, 18, 6, 25)
              and da_utc("2027-07-15T05:25:00Z") == datetime(2027, 7, 15, 7, 25)
-             and da_flightkey("FR~8597~ ~~VCE~12/17/2026 10:00~REG~12/17/2026 11:40~~")[0] == "FR 8597")
-    esito_test = "PASS" if (ok_valide and all(ko) and ok_tz) else \
-        "FAIL (valide=%s, scarti attesi=%s, fusi orari e chiavi volo=%s)" % (ok_valide, ko, ok_tz)
+             and da_flightkey("FR~8597~ ~~VCE~12/17/2026 10:00~REG~12/17/2026 11:40~~")[0] == "FR 8597"
+             and da_flightkey("FR~ 531~ ~~VCE~12/16/2026 07:25~PMO~12/16/2026 09:00~~")[0] == "FR 531")
+    ok_gb = test_giuntabus()
+    esito_test = "PASS" if (ok_valide and all(ko) and ok_tz and ok_gb) else \
+        "FAIL (valide=%s, scarti attesi=%s, fusi orari e chiavi volo=%s, Giuntabus=%s)" % (ok_valide, ko, ok_tz, ok_gb)
 
     corpo = ["<b>✈️ REPORT VIAGGI PORTA-A-PORTA (Padova ⇄ Milazzo)</b>",
              "Simulazione | Aggiornato: %s %s" % (fmt(ora_ora), hm(ora_ora)), ""]
     corpo += sezioni_top({"ANDATA": [andata_s], "RITORNO": [ritorno_s]})
-    corpo += ["AUTOTEST VALIDATORE, FUSI ORARI E CHIAVI VOLO: " + esito_test]
+    corpo += ["AUTOTEST (validatore, fusi orari, chiavi volo, lettura Giuntabus): " + esito_test]
 
     righe = ["<b>TEST – DATI NON REALI</b>",
              "Simulazione: nessuna chiamata a API o siti di trasporto.", ""]
     righe += ["[FITTIZIO] " + r if r.strip() else r for r in corpo]
     righe += ["", "<b>TEST – DATI NON REALI</b>: date, numeri, linee, importi e link sono inventati.",
-              "Serve solo a verificare formattazione, validatore e conversione oraria."]
+              "Serve solo a verificare formattazione, validatore e letture di prova."]
     testo = "\n".join(righe)
     print(testo)
     if TG_TOKEN and TG_CHAT:
@@ -1390,6 +1468,8 @@ def main():
         return
 
     BUS.update(carica_bus())
+    stampa_luoghi("Reggio")
+    stampa_luoghi("Villa San Giovanni")
 
     nome, a_da, a_a, r_da, r_a = evento
     domani = oggi + timedelta(days=1)
