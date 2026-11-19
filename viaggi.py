@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -90,21 +91,27 @@ NOME_APT = {"VCE": "Venezia Marco Polo", "TSF": "Treviso Aeroporto", "VRN": "Ver
 # minimo della rotta; il prezzo finale e SOLO quello verificato live.
 TOLLERANZA_HERMES = 0.30
 LIVE_PER_ROTTA = 2       # giorni verificati live per ogni rotta
-LIVE_MAX = 6             # verifiche live massime per direzione e per compagnia
+LIVE_MAX = 9             # verifiche live massime per direzione e per compagnia
+WIZZ_LIVE_MAX = 3        # verifiche live Wizz Air per direzione (solo combinazioni gia promettenti)
 PAUSA_SERVER = 1.1       # secondi tra due richieste al server locale (limite 60 al minuto)
-PAUSA_WIZZ = 10          # secondi di pausa prima di ogni verifica live Wizz Air
 
 # Collegamenti aeroporto -> Milazzo cercati sul server locale (Trenitalia).
-# CTA ha anche Giuntabus (pagina di prenotazione). I luoghi con suffisso BUS danno HTTP 503.
-# REG: i nomi stazione sono da verificare (vedi righe LUOGHI nel log); ogni tratta compare
-# solo se il server restituisce numero, orari e prezzo.
+# CTA ha anche Giuntabus (pagina di prenotazione). Nomi verificati dal log del 19/11/2026.
 PERCORSI_SUD = {
     "CTA": [[("Catania Aeroporto Fontanarossa", "Milazzo")]],
     "PMO": [[("Palermo Aeroporto", "Milazzo")]],
-    "REG": [[("Reggio Calabria Aeroporto", "Milazzo")],
-            [("Reggio Calabria Aeroporto", "Villa S. Giovanni"), ("Villa S. Giovanni", "Milazzo")],
-            [("Reggio Calabria Aeroporto", "Villa S. Giovanni"),
+    "REG": [[("Reggio Di Calabria Aeroporto", "Milazzo")],
+            [("Reggio Di Calabria Aeroporto", "Villa S. Giovanni"), ("Villa S. Giovanni", "Milazzo")],
+            [("Reggio Di Calabria Aeroporto", "Villa S. Giovanni"),
              ("Villa S. Giovanni", "Messina Centrale"), ("Messina Centrale", "Milazzo")]],
+}
+
+# Collegamenti Padova -> aeroporto del Nord diversi da VCE (VCE usa Busitalia).
+# Trenitalia vende treno + navetta Airlink con destinazione "<citta> Aeroporto": orari, numeri e
+# prezzo totale arrivano dal server. I nomi sono da confermare (vedi righe LUOGHI nel log).
+PERCORSI_NORD = {
+    "TSF": [[("Padova", "Treviso Aeroporto")]],
+    "VRN": [[("Padova", "Verona Aeroporto")]],
 }
 
 # Italo non serve Sicilia e sud: escluso dalle ricerche che coinvolgono questi nodi.
@@ -704,8 +711,9 @@ def leggi_availability(js, o, dst, url):
     return out
 
 
-def cattura_risposte(url, filtro_url):
-    """Apre la pagina ufficiale in Chromium e cattura le risposte JSON il cui indirizzo contiene filtro_url."""
+def cattura_risposte(url, filtro_url, riscalda=None):
+    """Apre la pagina ufficiale in Chromium e cattura le risposte JSON il cui indirizzo contiene
+    filtro_url. Se riscalda e indicato, visita prima quella pagina nella stessa sessione (cookie)."""
     risposte, errore = [], None
     try:
         from playwright.sync_api import sync_playwright
@@ -724,6 +732,9 @@ def cattura_risposte(url, filtro_url):
                             risposte.append((r.status, None))
 
                 page.on("response", on_risposta)
+                if riscalda:
+                    page.goto(riscalda, wait_until="domcontentloaded", timeout=45000)
+                    page.wait_for_timeout(int(random.uniform(4000, 7000)))
                 page.goto(url, wait_until="domcontentloaded", timeout=45000)
                 for _ in range(25):
                     if any(js for st, js in risposte):
@@ -812,11 +823,12 @@ def verifica_live_wizz(o, dst, giorno, ora_listino, prezzo_listino):
         return CACHE[chiave]
     url = "https://www.wizzair.com/it-it/booking/select-flight/%s/%s/%s/null/1/0/0/null" % (
         o, dst, giorno.isoformat())
-    time.sleep(PAUSA_WIZZ)
-    risposte, errore = cattura_risposte(url, ("/api/search/search",))
+    home = "https://www.wizzair.com/it-it"
+    time.sleep(random.uniform(5, 9))
+    risposte, errore = cattura_risposte(url, ("/api/search/search",), home)
     if not any(js for st, js in risposte) and any(st == 429 for st, js in risposte):
         time.sleep(45)  # limite di richieste (HTTP 429): attesa e un nuovo tentativo
-        risposte, errore = cattura_risposte(url, ("/api/search/search",))
+        risposte, errore = cattura_risposte(url, ("/api/search/search",), home)
     voli_ok, motivo = [], None
     buone = [js for st, js in risposte if js]
     if buone:
@@ -1067,45 +1079,54 @@ def alternativa_giuntabus(direz, rif):
     return [seg("bus", "Giuntabus", "", c["da"], c["a"], c["dep"], c["arr"], c["prezzo"], c.get("link"))]
 
 
+def percorri(hops, giorno, avanti, riferimento):
+    """hops: tratte in ordine cronologico di viaggio [(da, a), ...], cercate sul server locale.
+    avanti=True: la prima tratta parte non prima di `riferimento`.
+    avanti=False: l'ultima tratta arriva non oltre `riferimento`.
+    Tra una tratta e l'altra ci sono almeno BUFFER_TRANSITO minuti. Ritorna i segmenti o None."""
+    margine = timedelta(minutes=BUFFER_TRANSITO)
+    catena = []
+    t = riferimento
+    if avanti:
+        for a, b in hops:
+            cand = []
+            for j in cerca_viaggi("treno", a, b, giorno):
+                s, _ = segmento_treno(j)
+                if s and s["dep"] >= t:
+                    cand.append(s)
+            if not cand:
+                return None
+            s = min(cand, key=lambda x: (x["prezzo"], x["dep"]))
+            catena.append(s)
+            t = s["arr"] + margine
+    else:
+        for a, b in reversed(hops):
+            cand = []
+            for j in cerca_viaggi("treno", a, b, giorno):
+                s, _ = segmento_treno(j)
+                if s and s["arr"] <= t:
+                    cand.append(s)
+            if not cand:
+                return None
+            s = min(cand, key=lambda x: (x["prezzo"], -x["arr"].timestamp()))
+            catena.insert(0, s)
+            t = s["dep"] - margine
+    return catena
+
+
 def collegamento_sud(apt, direz, rif):
     """Collegamento reale aeroporto <-> Milazzo. ANDATA: rif = arrivo del volo.
     RITORNO: rif = partenza del volo."""
     giorno = rif.date()
-    margine = timedelta(minutes=BUFFER_TRANSITO)
     alternative = []
     for percorso in PERCORSI_SUD.get(apt, []):
-        catena, ok = [], True
         if direz == "ANDATA":
-            t = rif + margine
-            for a, b in percorso:
-                cand = []
-                for j in cerca_viaggi("treno", a, b, giorno):
-                    s, _ = segmento_treno(j)
-                    if s and s["dep"] >= t:
-                        cand.append(s)
-                if not cand:
-                    ok = False
-                    break
-                s = min(cand, key=lambda x: (x["prezzo"], x["dep"]))
-                catena.append(s)
-                t = s["arr"] + margine
+            c = percorri(percorso, giorno, True, rif + timedelta(minutes=BUFFER_TRANSITO))
         else:
             hops = [(b, a) for a, b in reversed(percorso)]
-            t = rif - timedelta(minutes=BUFFER_VOLO)
-            for a, b in reversed(hops):
-                cand = []
-                for j in cerca_viaggi("treno", a, b, giorno):
-                    s, _ = segmento_treno(j)
-                    if s and s["arr"] <= t:
-                        cand.append(s)
-                if not cand:
-                    ok = False
-                    break
-                s = min(cand, key=lambda x: (x["prezzo"], -x["arr"].timestamp()))
-                catena.insert(0, s)
-                t = s["dep"] - margine
-        if ok and catena:
-            alternative.append(catena)
+            c = percorri(hops, giorno, False, rif - timedelta(minutes=BUFFER_VOLO))
+        if c:
+            alternative.append(c)
     if apt == "CTA":
         gb = alternativa_giuntabus(direz, rif)
         if gb:
@@ -1117,6 +1138,27 @@ def collegamento_sud(apt, direz, rif):
     return None, motivo
 
 
+def collegamento_nord(apt, direz, rif):
+    """Collegamento reale Padova <-> aeroporto del Nord. ANDATA: rif = partenza del volo.
+    RITORNO: rif = arrivo del volo. VCE usa Busitalia (pagina ufficiale), gli altri Trenitalia + Airlink."""
+    if apt == "VCE":
+        s, perche = segmento_busitalia(direz, rif)
+        return ([s], None) if s else (None, perche)
+    giorno = rif.date()
+    alternative = []
+    for percorso in PERCORSI_NORD.get(apt, []):
+        if direz == "ANDATA":
+            c = percorri(percorso, giorno, False, rif - timedelta(minutes=BUFFER_VOLO))
+        else:
+            hops = [(b, a) for a, b in reversed(percorso)]
+            c = percorri(hops, giorno, True, rif + timedelta(minutes=BUFFER_TRANSITO))
+        if c:
+            alternative.append(c)
+    if not alternative:
+        return None, "nessun collegamento Trenitalia Padova-%s con numeri, orari e prezzo completi nello stesso giorno" % apt
+    return min(alternative, key=lambda c: (sum(s["prezzo"] for s in c), c[-1]["arr"])), None
+
+
 def costruisci_catena_volo(direz, f, o, dst, comp):
     andata = direz == "ANDATA"
     if f["valuta"] != "EUR":
@@ -1125,14 +1167,15 @@ def costruisci_catena_volo(direz, f, o, dst, comp):
         return None, "dati del volo incompleti (numero, orari o prezzo)"
     volo = seg("volo", comp, f["numero"], NOME_APT[o], NOME_APT[dst], f["dep"], f["arr"],
                f["prezzo"], f["link"], None, "%s → %s" % (o, dst))
-    nord_seg, perche = segmento_busitalia(direz, f["dep"] if andata else f["arr"])
-    if not nord_seg:
-        return None, perche
+    nord = o if andata else dst
     sud = dst if andata else o
+    nord_l, perche = collegamento_nord(nord, direz, f["dep"] if andata else f["arr"])
+    if not nord_l:
+        return None, perche
     coll, perche = collegamento_sud(sud, direz, f["arr"] if andata else f["dep"])
     if not coll:
         return None, perche
-    catena = [nord_seg, volo] + coll if andata else coll + [volo, nord_seg]
+    catena = nord_l + [volo] + coll if andata else coll + [volo] + nord_l
     return catena, None
 
 
@@ -1142,16 +1185,36 @@ def catene_voli(direz, voli_l):
     for v in voli_l:
         nord = v["o"] if andata else v["dst"]
         sud = v["dst"] if andata else v["o"]
-        if nord != "VCE":
+        if nord != "VCE" and not PERCORSI_NORD.get(nord):
             scarta_voce("Voli non verificabili", "nessuna fonte verificata per Padova-%s" % nord)
         elif not PERCORSI_SUD.get(sud):
             scarta_voce("Voli non verificabili", "nessuna fonte verificata per %s-Milazzo" % sud)
         elif v["comp"] in cand:
             cand[v["comp"]].append(v)
+    # Wizz: la verifica live parte solo se il collegamento a terra dal lato della partenza e gia valido
+    cat_w = "Voli Wizz Air (verifica live)"
+    promettenti = []
+    for v in cand["Wizz Air"]:
+        if not v["ore"]:
+            scarta_voce(cat_w, "orario di partenza del listino assente")
+            continue
+        dep = v["ore"][0]
+        if andata:
+            ok, _ = collegamento_nord(v["o"], direz, dep)
+        else:
+            ok, _ = collegamento_sud(v["o"], direz, dep)
+        if ok:
+            promettenti.append(v)
+        else:
+            scarta_voce(cat_w, "collegamento a terra non compatibile con l'orario di partenza del listino")
+    cand["Wizz Air"] = promettenti
     out = []
     for comp, lista in cand.items():
         cat = "Voli %s (verifica live)" % comp
-        for v in scegli_live(lista):
+        scelti = scegli_live(lista)
+        if comp == "Wizz Air":
+            scelti = scelti[:WIZZ_LIVE_MAX]
+        for v in scelti:
             if comp == "Ryanair":
                 live, motivo = verifica_live_ryanair(v["o"], v["dst"], v["data"])
             else:
@@ -1245,6 +1308,9 @@ def etichetta_mezzo(t):
         return "Autobus"
     if (da.startswith("villa s") and a.startswith("messina")) or (a.startswith("villa s") and da.startswith("messina")):
         return "Attraversamento Stretto (nave)"
+    if ("aeroporto" in da or "aeroporto" in a) and (
+            da.startswith(("verona", "treviso")) or a.startswith(("verona", "treviso"))):
+        return "Navetta bus (Airlink)"
     return "Treno"
 
 
@@ -1468,8 +1534,8 @@ def main():
         return
 
     BUS.update(carica_bus())
-    stampa_luoghi("Reggio")
-    stampa_luoghi("Villa San Giovanni")
+    stampa_luoghi("Treviso")
+    stampa_luoghi("Verona")
 
     nome, a_da, a_a, r_da, r_a = evento
     domani = oggi + timedelta(days=1)
