@@ -96,7 +96,7 @@ WIZZ_LIVE_MAX = 3        # verifiche live Wizz Air per direzione (solo combinazi
 PAUSA_SERVER = 1.1       # secondi tra due richieste al server locale (limite 60 al minuto)
 
 # Collegamenti aeroporto -> Milazzo cercati sul server locale (Trenitalia).
-# CTA ha anche Giuntabus (pagina di prenotazione). Nomi verificati dal log del 19/11/2026.
+# CTA ha anche Giuntabus (pagina di prenotazione). Nomi verificati dai log.
 PERCORSI_SUD = {
     "CTA": [[("Catania Aeroporto Fontanarossa", "Milazzo")]],
     "PMO": [[("Palermo Aeroporto", "Milazzo")]],
@@ -106,12 +106,18 @@ PERCORSI_SUD = {
              ("Villa S. Giovanni", "Messina Centrale"), ("Messina Centrale", "Milazzo")]],
 }
 
-# Collegamenti Padova -> aeroporto del Nord diversi da VCE (VCE usa Busitalia).
-# Trenitalia vende treno + navetta Airlink con destinazione "<citta> Aeroporto": orari, numeri e
-# prezzo totale arrivano dal server. I nomi sono da confermare (vedi righe LUOGHI nel log).
-PERCORSI_NORD = {
-    "TSF": [[("Padova", "Treviso Aeroporto")]],
-    "VRN": [[("Padova", "Verona Aeroporto")]],
+# Navette aeroporto del Nord: treno Trenitalia Padova <-> stazione + navetta stazione <-> aeroporto.
+# I luoghi "VERONA AEROPORTO" e "TREVISO AEROPORTO" del server danno HTTP 503, quindi si usa il treno
+# fino alla stazione. Non c'e una tabella oraria verificata: si usano i LIMITI NEL CASO PEGGIORE
+# calcolati dalla frequenza dichiarata. "primo"/"ultimo" = fascia in cui la frequenza e garantita;
+# None = navetta disattivata. Prezzi: Trenitalia (pagine Verona Airlink 7,00 e Treviso Airlink 5,00).
+NAVETTE = {
+    "VRN": {"op": "ATV Verona Airlink", "linea": "linea 199", "stazione": "Verona Porta Nuova",
+            "stop_apt": "Verona Aeroporto", "freq": 20, "durata": 15, "prezzo": 7.00,
+            "primo": (7, 10), "ultimo": (23, 10)},
+    "TSF": {"op": "MOM Airlink", "linea": "linea 6", "stazione": "Treviso Centrale",
+            "stop_apt": "Treviso Aeroporto", "freq": 30, "durata": 15, "prezzo": 5.00,
+            "primo": None, "ultimo": None},
 }
 
 # Italo non serve Sicilia e sud: escluso dalle ricerche che coinvolgono questi nodi.
@@ -961,15 +967,6 @@ def cerca_viaggi(tipo, orig, dest, giorno):
     return out
 
 
-def stampa_luoghi(query):
-    """Diagnostica: stampa nel log i nomi dei luoghi che il server conosce per una ricerca."""
-    js = get_json("%s/train-locations?query=%s" % (SERVER, urllib.parse.quote(query)))
-    if isinstance(js, dict):
-        nomi = ["%s:%s" % (l.get("provider"), l.get("name"))
-                for l in (js.get("locations") or []) if isinstance(l, dict)]
-        print("LUOGHI", query, " | ".join(nomi[:40]))
-
-
 # ---------- catene porta-a-porta ----------
 def seg(tipo, op, ident, da, a, dep, arr, prezzo, link=None, legs=None, tratta_txt=None):
     return {"tipo": tipo, "op": op, "id": ident, "da": da, "a": a, "dep": dep, "arr": arr,
@@ -1002,7 +999,12 @@ def valida_catena(segs, direz):
     for a, b in zip(segs, segs[1:]):
         if citta(a["a"]) != citta(b["da"]):
             return "inversione geografica: %s non coincide con %s" % (a["a"], b["da"])
-        margine = BUFFER_VOLO if b["tipo"] == "volo" else BUFFER_TRANSITO
+        if b["tipo"] == "volo":
+            margine = BUFFER_VOLO
+        elif b.get("frequenza"):
+            margine = 0  # navetta a frequenza: il margine e gia incluso nei suoi limiti orari
+        else:
+            margine = BUFFER_TRANSITO
         if b["dep"] < a["arr"] + timedelta(minutes=margine):
             return "coincidenza non compatibile a %s (margine minimo %d minuti)" % (a["a"], margine)
     return None
@@ -1138,25 +1140,60 @@ def collegamento_sud(apt, direz, rif):
     return None, motivo
 
 
+def nord_disponibile(apt):
+    if apt == "VCE":
+        return True
+    n = NAVETTE.get(apt)
+    return bool(n and n.get("primo") and n.get("ultimo"))
+
+
+def navetta_seg(n, da, a, dep, arr):
+    s = seg("bus", n["op"], n["linea"], da, a, dep, arr, n["prezzo"], None)
+    s["frequenza"] = n["freq"]
+    return s
+
+
+def collegamento_con_navetta(apt, direz, rif):
+    """Treno Padova <-> stazione + navetta stazione <-> aeroporto, con limiti nel caso peggiore.
+    ANDATA: rif = partenza del volo. RITORNO: rif = arrivo del volo."""
+    n = NAVETTE[apt]
+    if not n.get("primo") or not n.get("ultimo"):
+        return None, "navetta %s: fascia oraria del servizio non indicata (disattivata)" % apt
+    giorno = rif.date()
+    freq = timedelta(minutes=n["freq"])
+    dur = timedelta(minutes=n["durata"])
+    inizio_s = datetime.combine(giorno, ora_t(*n["primo"]))
+    fine_s = datetime.combine(giorno, ora_t(*n["ultimo"]))
+    stazione = n["stazione"]
+    fascia = "%s-%s" % (hm(inizio_s), hm(fine_s))
+    if direz == "ANDATA":
+        limite_treno = rif - timedelta(minutes=BUFFER_VOLO) - dur - freq
+        treno = percorri([("Padova", stazione)], giorno, False, limite_treno)
+        if not treno:
+            return None, "nessun treno Padova-%s con numeri, orari e prezzo completi nello stesso giorno" % stazione
+        t = treno[-1]["arr"]
+        if t < inizio_s or t + freq > fine_s:
+            return None, "navetta %s: arrivo del treno fuori dalla fascia con frequenza garantita (%s)" % (apt, fascia)
+        return treno + [navetta_seg(n, stazione, n["stop_apt"], t, t + freq + dur)], None
+    dep = rif + timedelta(minutes=BUFFER_TRANSITO)
+    if dep < inizio_s or dep + freq > fine_s:
+        return None, "navetta %s: atterraggio fuori dalla fascia con frequenza garantita (%s)" % (apt, fascia)
+    nav = navetta_seg(n, n["stop_apt"], stazione, dep, dep + freq + dur)
+    treno = percorri([(stazione, "Padova")], giorno, True, nav["arr"] + timedelta(minutes=BUFFER_TRANSITO))
+    if not treno:
+        return None, "nessun treno %s-Padova con numeri, orari e prezzo completi nello stesso giorno" % stazione
+    return [nav] + treno, None
+
+
 def collegamento_nord(apt, direz, rif):
     """Collegamento reale Padova <-> aeroporto del Nord. ANDATA: rif = partenza del volo.
-    RITORNO: rif = arrivo del volo. VCE usa Busitalia (pagina ufficiale), gli altri Trenitalia + Airlink."""
+    RITORNO: rif = arrivo del volo. VCE usa Busitalia (pagina ufficiale), gli altri treno + navetta."""
     if apt == "VCE":
         s, perche = segmento_busitalia(direz, rif)
         return ([s], None) if s else (None, perche)
-    giorno = rif.date()
-    alternative = []
-    for percorso in PERCORSI_NORD.get(apt, []):
-        if direz == "ANDATA":
-            c = percorri(percorso, giorno, False, rif - timedelta(minutes=BUFFER_VOLO))
-        else:
-            hops = [(b, a) for a, b in reversed(percorso)]
-            c = percorri(hops, giorno, True, rif + timedelta(minutes=BUFFER_TRANSITO))
-        if c:
-            alternative.append(c)
-    if not alternative:
-        return None, "nessun collegamento Trenitalia Padova-%s con numeri, orari e prezzo completi nello stesso giorno" % apt
-    return min(alternative, key=lambda c: (sum(s["prezzo"] for s in c), c[-1]["arr"])), None
+    if apt in NAVETTE:
+        return collegamento_con_navetta(apt, direz, rif)
+    return None, "nessuna fonte verificata per Padova-%s" % apt
 
 
 def costruisci_catena_volo(direz, f, o, dst, comp):
@@ -1185,7 +1222,7 @@ def catene_voli(direz, voli_l):
     for v in voli_l:
         nord = v["o"] if andata else v["dst"]
         sud = v["dst"] if andata else v["o"]
-        if nord != "VCE" and not PERCORSI_NORD.get(nord):
+        if not nord_disponibile(nord):
             scarta_voce("Voli non verificabili", "nessuna fonte verificata per Padova-%s" % nord)
         elif not PERCORSI_SUD.get(sud):
             scarta_voce("Voli non verificabili", "nessuna fonte verificata per %s-Milazzo" % sud)
@@ -1308,9 +1345,6 @@ def etichetta_mezzo(t):
         return "Autobus"
     if (da.startswith("villa s") and a.startswith("messina")) or (a.startswith("villa s") and da.startswith("messina")):
         return "Attraversamento Stretto (nave)"
-    if ("aeroporto" in da or "aeroporto" in a) and (
-            da.startswith(("verona", "treviso")) or a.startswith(("verona", "treviso"))):
-        return "Navetta bus (Airlink)"
     return "Treno"
 
 
@@ -1337,6 +1371,12 @@ def desc_seg(s, base):
         return "%s %s %s, %s (ora italiana), %s (prezzo verificato live)" % (
             s["op"], s["id"], s.get("tratta_txt") or "%s → %s" % (s["da"], s["a"]),
             orari_corti(s["dep"], s["arr"], base), costo)
+    if s.get("frequenza"):
+        f = timedelta(minutes=s["frequenza"])
+        return ("%s %s %s → %s, corse ogni %d min: partenza tra le %s e le %s, arrivo entro le %s, %s "
+                "(limiti nel caso peggiore dalla frequenza dichiarata; tabella oraria ufficiale non verificata)") % (
+            s["op"], s["id"], s["da"], s["a"], s["frequenza"], hm(s["dep"]), hm(s["dep"] + f),
+            hm(s["arr"]), costo)
     linea = (" " + s["id"]) if s["id"] else ""
     return "%s%s %s → %s, %s, %s" % (s["op"], linea, s["da"], s["a"],
                                       orari_corti(s["dep"], s["arr"], base), costo)
@@ -1413,7 +1453,42 @@ def test_giuntabus():
         return False
 
 
+def percorri_finto(hops, giorno, avanti, riferimento):
+    """Solo per l'autotest: treno inventato che rispetta esattamente il riferimento."""
+    a, b = hops[0]
+    if avanti:
+        dep = riferimento
+        arr = dep + timedelta(minutes=60)
+    else:
+        arr = riferimento
+        dep = arr - timedelta(minutes=60)
+    s = seg("treno", "Fittizio", "FITT-9", a, b, dep, arr, 9.99, None,
+            [{"num": "FITT-9", "da": a, "a": b, "dep": dep, "arr": arr}])
+    return [s]
+
+
+def test_navetta(giorno):
+    """Autotest della logica a frequenza (con percorri sostituito da percorri_finto)."""
+    try:
+        volo_dep = datetime.combine(giorno, ora_t(14, 0))
+        c1, _ = collegamento_con_navetta("VRN", "ANDATA", volo_dep)
+        ok1 = bool(c1) and c1[-1]["frequenza"] == 20 and c1[-1]["arr"] + timedelta(minutes=BUFFER_VOLO) <= volo_dep
+        c2, _ = collegamento_con_navetta("VRN", "ANDATA", datetime.combine(giorno, ora_t(8, 0)))
+        ok2 = c2 is None
+        volo_arr = datetime.combine(giorno, ora_t(10, 0))
+        c3, _ = collegamento_con_navetta("VRN", "RITORNO", volo_arr)
+        ok3 = (bool(c3) and c3[0]["dep"] == volo_arr + timedelta(minutes=BUFFER_TRANSITO)
+               and c3[1]["dep"] >= c3[0]["arr"] + timedelta(minutes=BUFFER_TRANSITO))
+        c4, _ = collegamento_con_navetta("TSF", "ANDATA", volo_dep)
+        ok4 = c4 is None
+        return ok1 and ok2 and ok3 and ok4
+    except Exception as e:
+        print("Autotest navetta:", repr(e)[:100])
+        return False
+
+
 def simula():
+    global percorri
     ora_ora = adesso()
     oggi = ora_ora.date()
     ga = oggi + timedelta(days=30)
@@ -1449,7 +1524,7 @@ def simula():
     bus_r = S("bus", "Bus Fittizio", "", "Messina", "Padova", h(gr, 20, 15), h(gr1, 14, 25), 44.44)
     ritorno_s = sol(reg_r, bus_r)
 
-    # Autotest (dati inventati o testi reali di esempio): validatore, fusi orari, chiavi volo, Giuntabus
+    # Autotest (dati inventati o testi reali di esempio)
     ok_valide = (valida_catena(andata_s["segmenti"], "ANDATA") is None
                  and valida_catena(ritorno_s["segmenti"], "RITORNO") is None)
     stretta = dict(hop)
@@ -1467,13 +1542,20 @@ def simula():
              and da_flightkey("FR~8597~ ~~VCE~12/17/2026 10:00~REG~12/17/2026 11:40~~")[0] == "FR 8597"
              and da_flightkey("FR~ 531~ ~~VCE~12/16/2026 07:25~PMO~12/16/2026 09:00~~")[0] == "FR 531")
     ok_gb = test_giuntabus()
-    esito_test = "PASS" if (ok_valide and all(ko) and ok_tz and ok_gb) else \
-        "FAIL (valide=%s, scarti attesi=%s, fusi orari e chiavi volo=%s, Giuntabus=%s)" % (ok_valide, ko, ok_tz, ok_gb)
+    percorri_originale = percorri
+    percorri = percorri_finto
+    try:
+        ok_nav = test_navetta(ga)
+    finally:
+        percorri = percorri_originale
+    esito_test = "PASS" if (ok_valide and all(ko) and ok_tz and ok_gb and ok_nav) else \
+        "FAIL (valide=%s, scarti attesi=%s, fusi orari e chiavi volo=%s, Giuntabus=%s, navetta=%s)" % (
+            ok_valide, ko, ok_tz, ok_gb, ok_nav)
 
     corpo = ["<b>✈️ REPORT VIAGGI PORTA-A-PORTA (Padova ⇄ Milazzo)</b>",
              "Simulazione | Aggiornato: %s %s" % (fmt(ora_ora), hm(ora_ora)), ""]
     corpo += sezioni_top({"ANDATA": [andata_s], "RITORNO": [ritorno_s]})
-    corpo += ["AUTOTEST (validatore, fusi orari, chiavi volo, lettura Giuntabus): " + esito_test]
+    corpo += ["AUTOTEST (validatore, fusi orari, chiavi volo, Giuntabus, navetta a frequenza): " + esito_test]
 
     righe = ["<b>TEST – DATI NON REALI</b>",
              "Simulazione: nessuna chiamata a API o siti di trasporto.", ""]
@@ -1534,8 +1616,6 @@ def main():
         return
 
     BUS.update(carica_bus())
-    stampa_luoghi("Treviso")
-    stampa_luoghi("Verona")
 
     nome, a_da, a_a, r_da, r_a = evento
     domani = oggi + timedelta(days=1)
