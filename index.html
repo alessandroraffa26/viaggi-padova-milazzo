@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Viaggi">
+<meta name="theme-color" content="#F2F2F7">
+<link rel="manifest" href="manifest.json">
+<title>Viaggi Padova ⇄ Milazzo</title>
+<style>
+:root{--bg:#F2F2F7;--card:#fff;--txt:#000;--sub:#6C6C70;--sep:#E5E5EA;--blu:#007AFF;--vetro:rgba(242,242,247,.85);--amb:#FF9500;--ros:#FF3B30;--ombra:0 1px 2px rgba(0,0,0,.05),0 6px 18px rgba(0,0,0,.06)}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--card:#1C1C1E;--txt:#fff;--sub:#8E8E93;--sep:#38383A;--vetro:rgba(0,0,0,.8);--ombra:none}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0}
+body{background:var(--bg);color:var(--txt);font:16px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+header{position:sticky;top:0;z-index:10;background:var(--vetro);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);padding:calc(env(safe-area-inset-top) + 8px) 16px 4px}
+.testa{display:flex;align-items:center;justify-content:space-between;max-width:640px;margin:0 auto}
+h1{font-size:30px;font-weight:700;margin:4px 0;letter-spacing:-.4px}
+.azioni{display:flex;gap:8px}
+.tasto{border:0;border-radius:16px;padding:8px 14px;font:inherit;font-weight:600;background:var(--blu);color:#fff;cursor:pointer}
+.tasto.sec{background:rgba(118,118,128,.16);color:var(--blu)}
+.tasto:disabled{opacity:.5}
+.sub{color:var(--sub);font-size:13px;max-width:640px;margin:0 auto 8px}
+.ctrl{display:flex;background:rgba(118,118,128,.14);border-radius:9px;padding:2px;margin:6px auto 8px;max-width:640px}
+.ctrl button{flex:1;border:0;background:transparent;padding:7px 4px;border-radius:7px;font:inherit;font-weight:600;color:var(--txt);cursor:pointer}
+.ctrl button.on{background:var(--card);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+main{padding:8px 16px calc(env(safe-area-inset-bottom) + 32px);max-width:640px;margin:0 auto}
+.card{background:var(--card);border-radius:18px;padding:16px;margin:0 0 12px;box-shadow:var(--ombra);cursor:pointer}
+.top{display:flex;justify-content:space-between;align-items:baseline}
+.pr{font-size:30px;font-weight:700;letter-spacing:-.5px}
+.du{color:var(--sub);font-size:14px;font-weight:600}
+.rg{color:var(--sub);font-size:14px;margin-top:2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 2px}
+.chip{background:rgba(118,118,128,.12);border-radius:10px;padding:3px 9px;font-size:13px}
+.apri,.lnk{display:inline-block;margin-top:10px;background:var(--blu);color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:7px 14px;border-radius:14px}
+.lnk{margin-top:6px;padding:5px 12px;font-size:13px}
+.tl{margin-top:14px;border-top:1px solid var(--sep);padding-top:12px}
+.seg{display:flex;gap:10px}
+.pt{width:34px;height:34px;border-radius:17px;background:rgba(0,122,255,.12);display:flex;align-items:center;justify-content:center;font-size:17px;flex:none}
+.co{flex:1;min-width:0}
+.r1{display:flex;justify-content:space-between;gap:8px}
+.r1 span{font-weight:600}
+.r2{font-size:14px;color:var(--sub)}
+.r3{font-size:15px;margin-top:2px}
+.tr{font-size:13px;color:var(--sub);margin-top:4px}
+.cb{margin:8px 0 8px 44px;display:inline-block;background:rgba(52,199,89,.15);color:#248A3D;border-radius:10px;padding:3px 10px;font-size:13px;font-weight:600}
+.cb.poco{background:rgba(255,149,0,.18);color:#C93400}
+.avviso{background:var(--ros);color:#fff;border-radius:14px;padding:10px 14px;font-weight:700;margin:0 0 12px;text-align:center}
+.avviso.arancio{background:var(--amb)}
+.vuoto{color:var(--sub);text-align:center;padding:40px 10px}
+.foglio{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s;z-index:20}
+.foglio.su{opacity:1;pointer-events:auto}
+.pan{background:var(--card);width:100%;max-width:640px;border-radius:18px 18px 0 0;padding:20px 16px calc(env(safe-area-inset-bottom) + 20px);transform:translateY(40px);transition:transform .25s}
+.foglio.su .pan{transform:none}
+.pan h2{margin:0 0 12px;font-size:22px}
+.pan label{display:block;font-size:13px;color:var(--sub);margin:12px 0 4px}
+.pan input{width:100%;padding:12px;border-radius:10px;border:1px solid var(--sep);background:var(--bg);color:var(--txt);font:inherit}
+.pan .tasto{width:100%;margin-top:14px;padding:13px}
+.err{color:var(--ros);font-size:14px;min-height:18px;margin-top:8px}
+.bar{height:6px;background:rgba(118,118,128,.2);border-radius:3px;overflow:hidden;margin:16px 0}
+.bar div{height:100%;width:3%;background:var(--blu);transition:width 1s linear}
+.centro{text-align:center}
+.giro{font-size:44px;animation:g 2s linear infinite;display:inline-block}
+@keyframes g{to{transform:rotate(360deg)}}
+.pic{font-size:13px;color:var(--sub);margin-top:10px;text-align:center}
+.pic a{color:var(--blu)}
+</style>
+</head>
+<body>
+<header>
+  <div class="testa"><h1>Viaggi</h1>
+    <div class="azioni"><button class="tasto sec" id="rl" aria-label="Aggiorna">↻</button><button class="tasto" id="cerca">Cerca</button></div>
+  </div>
+  <div class="sub" id="info">Caricamento…</div>
+  <div class="ctrl"><button id="t1" class="on">Andata (PD → ME)</button><button id="t2">Ritorno (ME → PD)</button></div>
+</header>
+<main id="app"></main>
+
+<div class="foglio" id="fg"><div class="pan">
+  <h2>Avvia ricerca</h2>
+  <div class="ctrl"><button id="m1">Simulazione</button><button id="m2" class="on">Reale</button></div>
+  <div id="evbox"><label for="ev">Date (opzionale): andata da, andata a, ritorno da, ritorno a</label>
+  <input id="ev" placeholder="2026-12-17,2026-12-18,2026-12-27,2026-12-28" autocomplete="off" autocapitalize="off"></div>
+  <div id="rpbox" style="display:none"><label for="rp">Repository (utente/repo)</label><input id="rp" placeholder="utente/viaggi-padova-milazzo" autocapitalize="off"></div>
+  <div id="tkbox"><label for="tk">Token GitHub (resta solo su questo telefono)</label><input id="tk" type="password" placeholder="github_pat_..." autocomplete="off"></div>
+  <div class="err" id="errore"></div>
+  <button class="tasto" id="avvia">Avvia</button>
+  <button class="tasto sec" id="annulla" style="margin-top:8px">Annulla</button>
+  <div class="pic"><a href="#" id="rimuovi">Rimuovi il token da questo telefono</a></div>
+</div></div>
+
+<div class="foglio" id="at"><div class="pan centro">
+  <div class="giro">✈️</div>
+  <h2 id="attit">Ricerca avviata</h2>
+  <div id="atx">Avvio in corso…</div>
+  <div class="bar"><div id="bar"></div></div>
+  <div class="pic" id="atsub"></div>
+  <button class="tasto sec" id="atchiudi">Chiudi (continua in background)</button>
+</div></div>
+
+<script>
+"use strict";
+const CFG = {workflow: "viaggi.yml", ref: "main", file: "dati_viaggi.json"};
+const K = {t: "vm_token", r: "vm_repo", d: "vm_dati"};
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const fh = i => new Date(i).toLocaleTimeString("it-IT", {hour: "2-digit", minute: "2-digit", timeZone: "Europe/Rome"});
+const fd = i => new Date(i).toLocaleDateString("it-IT", {weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Rome"});
+const gg = i => new Date(i).toLocaleDateString("en-CA", {timeZone: "Europe/Rome"});
+const eur = n => Number(n).toLocaleString("it-IT", {style: "currency", currency: "EUR"});
+const dur = m => Math.floor(m / 60) + "h " + String(m % 60).padStart(2, "0");
+let dati = null, tab = "ANDATA", modo = "reale", aperte = new Set(), poll = null, tick = null;
+
+function repo() {
+  const s = localStorage.getItem(K.r);
+  if (s && s.indexOf("/") > 0) return s.split("/");
+  if (location.hostname.endsWith(".github.io")) return [location.hostname.split(".")[0], location.pathname.split("/")[1] || ""];
+  return ["", ""];
+}
+const token = () => localStorage.getItem(K.t) || "";
+async function gh(path, opt) {
+  opt = opt || {};
+  const h = Object.assign({"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}, opt.headers || {});
+  if (token()) h["Authorization"] = "Bearer " + token();
+  return fetch("https://api.github.com" + path, Object.assign({}, opt, {headers: h}));
+}
+
+async function caricaDati() {
+  let d = null;
+  const [o, r] = repo();
+  try {
+    if (token() && o && r) {
+      const resp = await gh("/repos/" + o + "/" + r + "/contents/" + CFG.file + "?ref=" + CFG.ref + "&t=" + Date.now(), {headers: {"Accept": "application/vnd.github.raw+json"}, cache: "no-store"});
+      if (resp.ok) d = await resp.json();
+    }
+    if (!d) {
+      const resp = await fetch(CFG.file + "?t=" + Date.now(), {cache: "no-store"});
+      if (resp.ok) d = await resp.json();
+    }
+  } catch (e) {}
+  if (d) localStorage.setItem(K.d, JSON.stringify(d));
+  else {
+    const c = localStorage.getItem(K.d);
+    if (c) { d = JSON.parse(c); d.__cache = true; }
+  }
+  return d;
+}
+
+const ICONA = {volo: "✈️", treno: "🚆", bus: "🚌", navetta: "🚐"};
+const iconaTratta = m => /nave/i.test(m) ? "⛴️" : /autobus|navetta/i.test(m) ? "🚌" : "🚆";
+function principale(s) {
+  const v = s.segmenti.find(x => x.mezzo === "volo");
+  if (v) return v;
+  return s.segmenti.reduce((a, b) => (new Date(b.arrivo) - new Date(b.partenza)) > (new Date(a.arrivo) - new Date(a.partenza)) ? b : a);
+}
+const oraB = (iso, base) => fh(iso) + (gg(iso) !== base ? " <small>(" + esc(fd(iso)) + ")</small>" : "");
+
+function segHtml(s, base) {
+  let h = '<div class="seg"><div class="pt">' + (ICONA[s.mezzo] || "•") + '</div><div class="co">';
+  h += '<div class="r1"><b>' + esc(s.operatore) + (s.codice ? " " + esc(s.codice) : "") + "</b><span>" + eur(s.prezzo) + "</span></div>";
+  h += '<div class="r2">' + esc(s.da) + " → " + esc(s.a) + "</div>";
+  if (s.frequenza_min) h += '<div class="r3">Corse ogni ' + s.frequenza_min + " min · partenza tra le " + fh(s.partenza) + " e le " + fh(s.partenza_entro) + " · arrivo entro le " + fh(s.arrivo) + "</div>";
+  else h += '<div class="r3">' + oraB(s.partenza, base) + " → " + oraB(s.arrivo, base) + "</div>";
+  (s.tratte || []).forEach(t => {
+    h += '<div class="tr">' + iconaTratta(t.mezzo) + " " + esc(t.mezzo) + " " + esc(t.codice) + " · " + esc(t.da) + " → " + esc(t.a) + " · " + oraB(t.partenza, base) + " → " + oraB(t.arrivo, base) + "</div>";
+  });
+  if (s.link) h += '<a class="lnk" href="' + esc(s.link) + '" target="_blank" rel="noopener">Apri ' + esc(s.operatore) + "</a>";
+  return h + "</div></div>";
+}
+function cambioHtml(min) {
+  if (min == null) return "";
+  const poco = min < 75;
+  return '<div class="cb' + (poco ? " poco" : "") + '">Cambio: ' + dur(min) + (poco ? " · margine stretto" : "") + "</div>";
+}
+function cardHtml(s, id) {
+  const base = gg(s.partenza), p = principale(s);
+  let h = '<div class="card" data-id="' + id + '"><div class="top"><div class="pr">' + eur(s.totale) + '</div><div class="du">' + dur(s.durata_minuti) + "</div></div>";
+  h += '<div class="rg">' + esc(fd(s.partenza)) + " · " + fh(s.partenza) + " → " + fh(s.arrivo) + (gg(s.arrivo) !== base ? " (" + esc(fd(s.arrivo)) + ")" : "") + "</div>";
+  h += '<div class="chips">' + s.segmenti.map(x => '<span class="chip">' + (ICONA[x.mezzo] || "") + " " + esc(x.operatore) + "</span>").join("") + "</div>";
+  if (p && p.link) h += '<a class="apri" href="' + esc(p.link) + '" target="_blank" rel="noopener">Apri ' + esc(p.operatore) + "</a>";
+  if (aperte.has(id)) {
+    h += '<div class="tl">';
+    s.segmenti.forEach((x, k) => { h += segHtml(x, base); if (k < s.segmenti.length - 1) h += cambioHtml(x.attesa_dopo_min); });
+    h += "</div>";
+  }
+  return h + "</div>";
+}
+function render() {
+  const a = $("#app");
+  if (!dati) { a.innerHTML = '<div class="vuoto">Nessun dato. Premi “Cerca” per avviare una ricerca.</div>'; $("#info").textContent = "Nessun dato"; return; }
+  let h = "";
+  if (dati.simulazione) h += '<div class="avviso">DATI DI SIMULAZIONE — NON REALI</div>';
+  if (dati.__cache) h += '<div class="avviso arancio">Offline: ultimi dati salvati sul telefono</div>';
+  const lista = dati[tab] || [];
+  if (!lista.length) h += '<div class="vuoto">Nessuna soluzione completa e verificata per queste date.</div>';
+  lista.slice(0, 10).forEach((s, i) => { h += cardHtml(s, tab + i); });
+  a.innerHTML = h;
+  $("#t1").textContent = "Andata (PD → ME) · " + (dati.ANDATA || []).length;
+  $("#t2").textContent = "Ritorno (ME → PD) · " + (dati.RITORNO || []).length;
+  $("#info").textContent = "Aggiornato " + fd(dati.aggiornato) + " " + fh(dati.aggiornato) + " · " + dati.modalita + " · " + dati.durata_secondi + " s" + (dati.evento ? " · " + dati.evento : "");
+}
+async function ricarica() { dati = await caricaDati(); render(); }
+
+function apriFoglio() {
+  $("#errore").textContent = "";
+  $("#tkbox").style.display = token() ? "none" : "block";
+  $("#rimuovi").style.display = token() ? "inline" : "none";
+  const r = repo();
+  $("#rpbox").style.display = (r[0] && r[1]) ? "none" : "block";
+  $("#evbox").style.display = modo === "reale" ? "block" : "none";
+  $("#fg").classList.add("su");
+}
+async function avvia() {
+  const err = $("#errore");
+  err.textContent = "";
+  if (!token()) {
+    const t = $("#tk").value.trim();
+    if (!t) { err.textContent = "Incolla il token GitHub."; return; }
+    localStorage.setItem(K.t, t);
+  }
+  if ($("#rpbox").style.display !== "none") {
+    const rp = $("#rp").value.trim();
+    if (rp.indexOf("/") < 1) { err.textContent = "Indica il repository come utente/repo."; return; }
+    localStorage.setItem(K.r, rp);
+  }
+  const [o, r] = repo();
+  const ev = modo === "reale" ? $("#ev").value.trim() : "";
+  if (ev && (ev.match(/\d{4}-\d{2}-\d{2}/g) || []).length !== 4) { err.textContent = "Servono 4 date AAAA-MM-GG separate da virgola."; return; }
+  $("#avvia").disabled = true;
+  const t0 = Date.now();
+  try {
+    const resp = await gh("/repos/" + o + "/" + r + "/actions/workflows/" + CFG.workflow + "/dispatches", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ref: CFG.ref, inputs: {modalita: modo, evento_test: ev}})
+    });
+    if (resp.status !== 204) {
+      err.textContent = "Errore " + resp.status + ": controlla token e permessi (Actions: lettura e scrittura).";
+      $("#avvia").disabled = false;
+      return;
+    }
+  } catch (e) {
+    err.textContent = "Nessuna connessione.";
+    $("#avvia").disabled = false;
+    return;
+  }
+  $("#avvia").disabled = false;
+  $("#fg").classList.remove("su");
+  attesa(t0, modo);
+}
+
+function fermaAttesa() { clearInterval(tick); clearInterval(poll); }
+function attesa(t0, m) {
+  const base = (dati && !dati.simulazione && dati.durata_secondi) ? dati.durata_secondi + 180 : 480;
+  const stima = m === "simulazione" ? 60 : Math.max(180, base);
+  $("#at").classList.add("su");
+  $("#attit").textContent = "Ricerca avviata";
+  $("#atsub").textContent = "In attesa di GitHub…";
+  fermaAttesa();
+  tick = setInterval(() => {
+    const el = (Date.now() - t0) / 1000, resto = stima - el;
+    $("#atx").textContent = resto > 90 ? "Elaborazione in corso: tra circa " + Math.ceil(resto / 60) + " minuti riceverai il messaggio su Telegram"
+      : resto > 0 ? "Elaborazione in corso: tra meno di due minuti riceverai il messaggio su Telegram" : "Ancora qualche istante…";
+    $("#bar").style.width = Math.min(95, Math.max(3, 100 * el / stima)) + "%";
+  }, 1000);
+  const controlla = async () => {
+    try {
+      const [o, r] = repo();
+      const resp = await gh("/repos/" + o + "/" + r + "/actions/workflows/" + CFG.workflow + "/runs?event=workflow_dispatch&per_page=5&t=" + Date.now(), {cache: "no-store"});
+      if (!resp.ok) return;
+      const js = await resp.json();
+      const run = (js.workflow_runs || []).find(x => new Date(x.created_at).getTime() >= t0 - 30000);
+      if (!run) { $("#atsub").textContent = "In coda…"; return; }
+      $("#atsub").textContent = run.status === "queued" ? "In coda…" : run.status === "in_progress" ? "In esecuzione sul cloud…" : "Completato";
+      if (run.status === "completed") {
+        fermaAttesa();
+        if (run.conclusion === "success") {
+          $("#bar").style.width = "100%";
+          await ricarica();
+          $("#at").classList.remove("su");
+        } else {
+          $("#attit").textContent = "Esecuzione non riuscita";
+          $("#atx").textContent = "Esito: " + run.conclusion + ". Controlla il messaggio su Telegram o i log su GitHub.";
+          $("#atsub").textContent = "";
+        }
+      }
+    } catch (e) {}
+  };
+  poll = setInterval(controlla, 10000);
+  setTimeout(controlla, 4000);
+}
+
+$("#t1").onclick = () => { tab = "ANDATA"; $("#t1").classList.add("on"); $("#t2").classList.remove("on"); render(); };
+$("#t2").onclick = () => { tab = "RITORNO"; $("#t2").classList.add("on"); $("#t1").classList.remove("on"); render(); };
+$("#m1").onclick = () => { modo = "simulazione"; $("#m1").classList.add("on"); $("#m2").classList.remove("on"); $("#evbox").style.display = "none"; };
+$("#m2").onclick = () => { modo = "reale"; $("#m2").classList.add("on"); $("#m1").classList.remove("on"); $("#evbox").style.display = "block"; };
+$("#cerca").onclick = apriFoglio;
+$("#annulla").onclick = () => $("#fg").classList.remove("su");
+$("#avvia").onclick = avvia;
+$("#rl").onclick = ricarica;
+$("#atchiudi").onclick = () => $("#at").classList.remove("su");
+$("#rimuovi").onclick = e => { e.preventDefault(); localStorage.removeItem(K.t); apriFoglio(); };
+$("#app").addEventListener("click", e => {
+  if (e.target.closest("a")) return;
+  const c = e.target.closest("[data-id]");
+  if (!c) return;
+  const id = c.getAttribute("data-id");
+  if (aperte.has(id)) aperte.delete(id); else aperte.add(id);
+  render();
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden) ricarica(); });
+
+(function icona() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 180;
+  const x = c.getContext("2d");
+  const g = x.createLinearGradient(0, 0, 180, 180);
+  g.addColorStop(0, "#5AC8FA"); g.addColorStop(1, "#007AFF");
+  x.fillStyle = g; x.fillRect(0, 0, 180, 180);
+  x.font = "96px -apple-system, sans-serif"; x.textAlign = "center"; x.textBaseline = "middle";
+  x.fillText("✈️", 90, 98);
+  const l = document.createElement("link");
+  l.rel = "apple-touch-icon"; l.href = c.toDataURL("image/png");
+  document.head.appendChild(l);
+})();
+
+ricarica();
+</script>
+</body>
+</html>
