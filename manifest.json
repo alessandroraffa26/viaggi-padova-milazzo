@@ -1,0 +1,20 @@
+{
+  "name": "Viaggi Padova–Milazzo",
+  "short_name": "Viaggi",
+  "description": "Migliori andate e ritorni Padova ⇄ Milazzo",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F2F2F7",
+  "theme_color": "#F2F2F7",
+  "lang": "it",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' fill='%23007AFF'/%3E%3Ctext x='90' y='125' font-size='100' text-anchor='middle'%3E✈️%3C/text%3E%3C/svg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
