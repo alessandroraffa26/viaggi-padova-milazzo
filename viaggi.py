@@ -13,6 +13,8 @@ from html import escape as esc
 from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
 
+T0 = time.time()
+
 # ===== CONTROLLO DATA E MODALITA =====
 DATA_INIZIO = "2027-09-15"   # data ufficiale di avvio: i test manuali non la modificano
 
@@ -69,10 +71,12 @@ TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "")
 MESSAGGIO = os.environ.get("MESSAGGIO", "").strip()
 SERVER = "http://127.0.0.1:3000"
 FILE_VINCOLI = "vincoli.json"
+FILE_DATI = "dati_viaggi.json"
+MAX_SOLUZIONI_JSON = 20
 ROMA = ZoneInfo("Europe/Rome")
 
 ORIZZONTE_GIORNI = 120   # quanto in anticipo guardare le festivita
-DATE_TRENO = 5           # date campionate per finestra per treni e bus
+DATE_TRENO = 3           # date campionate per finestra per treni e bus
 BUFFER_VOLO = 90         # minuti prima del volo
 BUFFER_TRANSITO = 60     # minuti tra arrivo e coincidenza successiva
 
@@ -87,16 +91,15 @@ AEROPORTI_SUD = ["CTA", "PMO", "REG"]
 NOME_APT = {"VCE": "Venezia Marco Polo", "TSF": "Treviso Aeroporto", "VRN": "Verona Aeroporto",
             "CTA": "Catania Aeroporto", "PMO": "Palermo Aeroporto", "REG": "Reggio Calabria Aeroporto"}
 
-# Stadio 1 (Hermes / listino Wizz): si scelgono i giorni piu economici entro questa tolleranza sul
-# minimo della rotta; il prezzo finale e SOLO quello verificato live.
-TOLLERANZA_HERMES = 0.30
-LIVE_PER_ROTTA = 2       # giorni verificati live per ogni rotta
-LIVE_MAX = 9             # verifiche live massime per direzione e per compagnia
-WIZZ_LIVE_MAX = 3        # verifiche live Wizz Air per direzione (solo combinazioni gia promettenti)
+# Stadio 1 (Hermes / listino Wizz): giorni piu economici entro questa tolleranza sul minimo della
+# rotta; il prezzo finale e SOLO quello verificato live.
+TOLLERANZA_HERMES = 0.20
+LIVE_PER_ROTTA = 2       # giorni verificati live per ogni rotta (a turno tra le rotte)
+LIVE_MAX = 6             # verifiche live Ryanair massime per direzione
+WIZZ_LIVE_MAX = 2        # verifiche live Wizz Air per direzione (solo combinazioni gia promettenti)
 PAUSA_SERVER = 1.1       # secondi tra due richieste al server locale (limite 60 al minuto)
 
-# Collegamenti aeroporto -> Milazzo cercati sul server locale (Trenitalia).
-# CTA ha anche Giuntabus (pagina di prenotazione). Nomi verificati dai log.
+# Collegamenti aeroporto -> Milazzo cercati sul server locale (Trenitalia). Nomi verificati dai log.
 PERCORSI_SUD = {
     "CTA": [[("Catania Aeroporto Fontanarossa", "Milazzo")]],
     "PMO": [[("Palermo Aeroporto", "Milazzo")]],
@@ -106,11 +109,8 @@ PERCORSI_SUD = {
              ("Villa S. Giovanni", "Messina Centrale"), ("Messina Centrale", "Milazzo")]],
 }
 
-# Navette aeroporto del Nord: treno Trenitalia Padova <-> stazione + navetta stazione <-> aeroporto.
-# I luoghi "VERONA AEROPORTO" e "TREVISO AEROPORTO" del server danno HTTP 503, quindi si usa il treno
-# fino alla stazione. Non c'e una tabella oraria verificata: si usano i LIMITI NEL CASO PEGGIORE
-# calcolati dalla frequenza dichiarata. "primo"/"ultimo" = fascia in cui la frequenza e garantita;
-# None = navetta disattivata. Prezzi: Trenitalia (pagine Verona Airlink 7,00 e Treviso Airlink 5,00).
+# Navette aeroporto del Nord: treno Padova <-> stazione + navetta stazione <-> aeroporto, con limiti nel
+# caso peggiore dalla frequenza dichiarata. "primo"/"ultimo" = fascia con frequenza garantita; None = off.
 NAVETTE = {
     "VRN": {"op": "ATV Verona Airlink", "linea": "linea 199", "stazione": "Verona Porta Nuova",
             "stop_apt": "Verona Aeroporto", "freq": 20, "durata": 15, "prezzo": 7.00,
@@ -170,6 +170,8 @@ ERRORI_FONTI = {}
 CONTI = {}
 MOTIVI = {}
 ULT_ERR = [""]
+WIZZ_BLOCCATO = [False]
+_PW = {"pw": None, "browser": None}
 
 
 # ---------- utilita ----------
@@ -375,6 +377,28 @@ def scegli(lista, n):
         return lista
     passo = (len(lista) - 1) / (n - 1)
     return [lista[round(i * passo)] for i in range(n)]
+
+
+# ---------- browser condiviso (un solo Chromium per tutta l'esecuzione) ----------
+def ottieni_browser():
+    if _PW["browser"] is None:
+        from playwright.sync_api import sync_playwright
+        _PW["pw"] = sync_playwright().start()
+        _PW["browser"] = _PW["pw"].chromium.launch(
+            headless=True, args=["--disable-blink-features=AutomationControlled"])
+    return _PW["browser"]
+
+
+def chiudi_browser():
+    try:
+        if _PW["browser"] is not None:
+            _PW["browser"].close()
+        if _PW["pw"] is not None:
+            _PW["pw"].stop()
+    except Exception:
+        pass
+    _PW["browser"] = None
+    _PW["pw"] = None
 
 
 # ---------- vincoli ----------
@@ -643,20 +667,24 @@ def voli(direz, nord, sud, inizio, fine, bloccate):
     return out
 
 
-def scegli_live(candidati):
-    """Stadio 1: per ogni rotta tiene i giorni piu economici entro la tolleranza."""
+def scegli_live(candidati, massimo=None):
+    """Stadio 1: per ogni rotta i giorni piu economici entro la tolleranza; le rotte vengono
+    scelte a turno (prima il giorno migliore di ognuna, poi il secondo) fino al massimo."""
     per_rotta = {}
     for v in candidati:
         per_rotta.setdefault((v["o"], v["dst"]), []).append(v)
-    scelti = []
+    code = []
     for lista in per_rotta.values():
         lista.sort(key=lambda v: v["prezzo"])
         minimo = lista[0]["prezzo"]
-        for v in lista[:LIVE_PER_ROTTA]:
-            if v["prezzo"] <= minimo * (1 + TOLLERANZA_HERMES):
-                scelti.append(v)
-    scelti.sort(key=lambda v: v["prezzo"])
-    return scelti[:LIVE_MAX]
+        code.append([v for v in lista[:LIVE_PER_ROTTA] if v["prezzo"] <= minimo * (1 + TOLLERANZA_HERMES)])
+    code.sort(key=lambda c: c[0]["prezzo"])
+    scelti = []
+    for livello in range(LIVE_PER_ROTTA):
+        for c in code:
+            if livello < len(c):
+                scelti.append(c[livello])
+    return scelti[:(massimo or LIVE_MAX)]
 
 
 # ---------- voli: stadio 2 (verifica live sulle pagine ufficiali, mercato italiano, EUR) ----------
@@ -717,39 +745,44 @@ def leggi_availability(js, o, dst, url):
     return out
 
 
-def cattura_risposte(url, filtro_url, riscalda=None):
-    """Apre la pagina ufficiale in Chromium e cattura le risposte JSON il cui indirizzo contiene
-    filtro_url. Se riscalda e indicato, visita prima quella pagina nella stessa sessione (cookie)."""
-    risposte, errore = [], None
+def cattura_risposte(url, filtro_url, riscalda=None, leggero=False):
+    """Apre la pagina ufficiale nel Chromium condiviso (un contesto nuovo per chiamata) e cattura le
+    risposte JSON il cui indirizzo contiene filtro_url. Si ferma appena arriva il dato utile."""
+    risposte, errore, ctx = [], None, None
     try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
-            try:
-                ctx = browser.new_context(locale="it-IT", timezone_id="Europe/Rome", user_agent=UA_BROWSER,
-                                          extra_http_headers={"Accept-Language": "it-IT,it;q=0.9,en;q=0.8"})
-                page = ctx.new_page()
+        browser = ottieni_browser()
+        ctx = browser.new_context(locale="it-IT", timezone_id="Europe/Rome", user_agent=UA_BROWSER,
+                                  extra_http_headers={"Accept-Language": "it-IT,it;q=0.9,en;q=0.8"})
+        if leggero:
+            ctx.route("**/*", lambda r: r.abort()
+                      if r.request.resource_type in ("image", "media", "font") else r.continue_())
+        page = ctx.new_page()
 
-                def on_risposta(r):
-                    if all(k in r.url.lower() for k in filtro_url):
-                        try:
-                            risposte.append((r.status, r.json() if r.status == 200 else None))
-                        except Exception:
-                            risposte.append((r.status, None))
+        def on_risposta(r):
+            if all(k in r.url.lower() for k in filtro_url):
+                try:
+                    risposte.append((r.status, r.json() if r.status == 200 else None))
+                except Exception:
+                    risposte.append((r.status, None))
 
-                page.on("response", on_risposta)
-                if riscalda:
-                    page.goto(riscalda, wait_until="domcontentloaded", timeout=45000)
-                    page.wait_for_timeout(int(random.uniform(4000, 7000)))
-                page.goto(url, wait_until="domcontentloaded", timeout=45000)
-                for _ in range(25):
-                    if any(js for st, js in risposte):
-                        break
-                    page.wait_for_timeout(1000)
-            finally:
-                browser.close()
+        page.on("response", on_risposta)
+        if riscalda:
+            page.goto(riscalda, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(int(random.uniform(4000, 7000)))
+        page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        for _ in range(80):
+            if any(js for st, js in risposte):
+                break
+            page.wait_for_timeout(250)
     except Exception as e:
         errore = "verifica live non eseguibile (%s)" % repr(e)[:80]
+        chiudi_browser()  # al prossimo uso Chromium riparte pulito
+    finally:
+        if ctx is not None:
+            try:
+                ctx.close()
+            except Exception:
+                pass
     return risposte, errore
 
 
@@ -767,7 +800,7 @@ def verifica_live_ryanair(o, dst, giorno):
         return CACHE[chiave]
     url = ("https://www.ryanair.com/it/it/trip/flights/select?adults=1&teens=0&children=0&infants=0"
            "&dateOut=%s&originIata=%s&destinationIata=%s") % (giorno.isoformat(), o, dst)
-    risposte, errore = cattura_risposte(url, ("/api/booking/", "availability"))
+    risposte, errore = cattura_risposte(url, ("/api/booking/", "availability"), None, True)
     voli_ok, motivo = [], None
     buone = [js for st, js in risposte if js]
     if buone:
@@ -824,6 +857,8 @@ def leggi_wizz_live(js, url, ora_listino, prezzo_listino):
 
 
 def verifica_live_wizz(o, dst, giorno, ora_listino, prezzo_listino):
+    if WIZZ_BLOCCATO[0]:
+        return [], "Wizz Air: limite di richieste (HTTP 429) gia raggiunto in questa esecuzione, verifiche successive saltate"
     chiave = ("live", "Wizz Air", o, dst, giorno)
     if chiave in CACHE:
         return CACHE[chiave]
@@ -833,8 +868,10 @@ def verifica_live_wizz(o, dst, giorno, ora_listino, prezzo_listino):
     time.sleep(random.uniform(5, 9))
     risposte, errore = cattura_risposte(url, ("/api/search/search",), home)
     if not any(js for st, js in risposte) and any(st == 429 for st, js in risposte):
-        time.sleep(45)  # limite di richieste (HTTP 429): attesa e un nuovo tentativo
+        time.sleep(20)  # limite di richieste (HTTP 429): una breve attesa e un solo nuovo tentativo
         risposte, errore = cattura_risposte(url, ("/api/search/search",), home)
+        if not any(js for st, js in risposte) and any(st == 429 for st, js in risposte):
+            WIZZ_BLOCCATO[0] = True
     voli_ok, motivo = [], None
     buone = [js for st, js in risposte if js]
     if buone:
@@ -1055,7 +1092,7 @@ def corse_giuntabus(direz, giorno):
     corse = []
     try:
         import giuntabus
-        corse = giuntabus.leggi(da, a, giorno)["corse"]
+        corse = giuntabus.leggi(da, a, giorno, ottieni_browser())["corse"]
         conta("Giuntabus", bool(corse))
     except Exception as e:
         print("Errore Giuntabus", repr(e)[:200])
@@ -1086,9 +1123,11 @@ def percorri(hops, giorno, avanti, riferimento):
     avanti=True: la prima tratta parte non prima di `riferimento`.
     avanti=False: l'ultima tratta arriva non oltre `riferimento`.
     Tra una tratta e l'altra ci sono almeno BUFFER_TRANSITO minuti. Ritorna i segmenti o None."""
+    t = riferimento
+    if t.date() != giorno:
+        return None  # il riferimento esce dal giorno cercato: nessuna chiamata inutile
     margine = timedelta(minutes=BUFFER_TRANSITO)
     catena = []
-    t = riferimento
     if avanti:
         for a, b in hops:
             cand = []
@@ -1248,10 +1287,7 @@ def catene_voli(direz, voli_l):
     out = []
     for comp, lista in cand.items():
         cat = "Voli %s (verifica live)" % comp
-        scelti = scegli_live(lista)
-        if comp == "Wizz Air":
-            scelti = scelti[:WIZZ_LIVE_MAX]
-        for v in scelti:
+        for v in scegli_live(lista, WIZZ_LIVE_MAX if comp == "Wizz Air" else LIVE_MAX):
             if comp == "Ryanair":
                 live, motivo = verifica_live_ryanair(v["o"], v["dst"], v["data"])
             else:
@@ -1425,6 +1461,47 @@ def sezioni_top(SOL):
     return righe
 
 
+# ---------- esportazione per la web app ----------
+def iso(x):
+    return x.replace(tzinfo=ROMA).isoformat() if x else None
+
+
+def segmento_json(s, successivo):
+    mezzo = {"volo": "volo", "treno": "treno",
+             "bus": "navetta" if s.get("frequenza") else "bus"}.get(s["tipo"], s["tipo"])
+    out = {"mezzo": mezzo, "operatore": s["op"], "codice": s["id"] or None, "da": s["da"], "a": s["a"],
+           "partenza": iso(s["dep"]), "arrivo": iso(s["arr"]), "prezzo": s["prezzo"], "link": s.get("link")}
+    if s.get("frequenza"):
+        out["frequenza_min"] = s["frequenza"]
+        out["partenza_entro"] = iso(s["dep"] + timedelta(minutes=s["frequenza"]))
+    if s["legs"]:
+        out["tratte"] = [{"mezzo": etichetta_mezzo(t), "codice": t["num"], "da": t["da"], "a": t["a"],
+                          "partenza": iso(t["dep"]), "arrivo": iso(t["arr"])} for t in s["legs"]]
+    if successivo is not None:
+        out["attesa_dopo_min"] = int((successivo["dep"] - s["arr"]).total_seconds() // 60)
+    return out
+
+
+def soluzione_json(sol):
+    segs = sol["segmenti"]
+    return {"totale": sol["totale"], "tipo": sol.get("tipo"),
+            "durata_minuti": int((segs[-1]["arr"] - segs[0]["dep"]).total_seconds() // 60),
+            "partenza": iso(segs[0]["dep"]), "arrivo": iso(segs[-1]["arr"]),
+            "segmenti": [segmento_json(s, segs[k + 1] if k + 1 < len(segs) else None)
+                         for k, s in enumerate(segs)]}
+
+
+def salva_dati(modalita, evento, bloccate, SOL, ora_ora, simulazione):
+    dati = {"aggiornato": ora_ora.isoformat(), "modalita": modalita, "simulazione": simulazione,
+            "evento": evento, "date_escluse": sorted(bloccate),
+            "durata_secondi": round(time.time() - T0), "valuta": "EUR"}
+    for direz in ("ANDATA", "RITORNO"):
+        ordinate = sorted(SOL[direz], key=lambda s: s["totale"])[:MAX_SOLUZIONI_JSON]
+        dati[direz] = [soluzione_json(s) for s in ordinate]
+    with open(FILE_DATI, "w", encoding="utf-8") as f:
+        json.dump(dati, f, ensure_ascii=False, indent=1)
+
+
 # ---------- simulazione (dati inventati, nessuna chiamata) ----------
 # Testo reale di una pagina Giuntabus (struttura osservata nel log del 18/11/2026), usato per l'autotest.
 ESEMPIO_GIUNTABUS = "\n".join([
@@ -1548,14 +1625,19 @@ def simula():
         ok_nav = test_navetta(ga)
     finally:
         percorri = percorri_originale
-    esito_test = "PASS" if (ok_valide and all(ko) and ok_tz and ok_gb and ok_nav) else \
-        "FAIL (valide=%s, scarti attesi=%s, fusi orari e chiavi volo=%s, Giuntabus=%s, navetta=%s)" % (
-            ok_valide, ko, ok_tz, ok_gb, ok_nav)
+    js_t = soluzione_json(andata_s)
+    ok_json = (js_t["totale"] == andata_s["totale"] and len(js_t["segmenti"]) == 3
+               and datetime.fromisoformat(js_t["partenza"]).utcoffset() is not None
+               and js_t["segmenti"][0]["attesa_dopo_min"] == 90)
+    esito_test = "PASS" if (ok_valide and all(ko) and ok_tz and ok_gb and ok_nav and ok_json) else \
+        "FAIL (valide=%s, scarti attesi=%s, fusi orari e chiavi volo=%s, Giuntabus=%s, navetta=%s, json=%s)" % (
+            ok_valide, ko, ok_tz, ok_gb, ok_nav, ok_json)
 
+    SOL = {"ANDATA": [andata_s], "RITORNO": [ritorno_s]}
     corpo = ["<b>✈️ REPORT VIAGGI PORTA-A-PORTA (Padova ⇄ Milazzo)</b>",
              "Simulazione | Aggiornato: %s %s" % (fmt(ora_ora), hm(ora_ora)), ""]
-    corpo += sezioni_top({"ANDATA": [andata_s], "RITORNO": [ritorno_s]})
-    corpo += ["AUTOTEST (validatore, fusi orari, chiavi volo, Giuntabus, navetta a frequenza): " + esito_test]
+    corpo += sezioni_top(SOL)
+    corpo += ["AUTOTEST (validatore, fusi orari, chiavi volo, Giuntabus, navetta, esportazione): " + esito_test]
 
     righe = ["<b>TEST – DATI NON REALI</b>",
              "Simulazione: nessuna chiamata a API o siti di trasporto.", ""]
@@ -1564,6 +1646,7 @@ def simula():
               "Serve solo a verificare formattazione, validatore e letture di prova."]
     testo = "\n".join(righe)
     print(testo)
+    salva_dati("simulazione", "SIMULAZIONE", set(), SOL, ora_ora, True)
     if TG_TOKEN and TG_CHAT:
         telegram(testo)
     else:
@@ -1616,6 +1699,8 @@ def main():
         return
 
     BUS.update(carica_bus())
+    nord_attivi = [n for n in AEROPORTI_NORD if nord_disponibile(n)]
+    nord_spenti = [n for n in AEROPORTI_NORD if n not in nord_attivi]
 
     nome, a_da, a_a, r_da, r_a = evento
     domani = oggi + timedelta(days=1)
@@ -1623,20 +1708,25 @@ def main():
                 ("RITORNO", max(d(r_da), domani), d(r_a)))
 
     SOL = {}
-    for direz, ini, fin in finestre:
-        sols = []
-        if ini <= fin:
-            giorni = [ini + timedelta(days=i) for i in range((fin - ini).days + 1)]
-            giorni = [g for g in giorni if g.isoformat() not in bloccate]
-            voli_l = []
-            for nord in AEROPORTI_NORD:
-                for sud in AEROPORTI_SUD:
-                    voli_l += voli(direz, nord, sud, ini, fin, bloccate)
-            sols += catene_voli(direz, voli_l)
-            scelti = scegli(giorni, DATE_TRENO)
-            sols += catene_treno_diretto(direz, scelti)
-            sols += catene_flix(direz, scelti)
-        SOL[direz] = sols
+    try:
+        for direz, ini, fin in finestre:
+            sols = []
+            if ini <= fin:
+                giorni = [ini + timedelta(days=i) for i in range((fin - ini).days + 1)]
+                giorni = [g for g in giorni if g.isoformat() not in bloccate]
+                voli_l = []
+                for nord in nord_attivi:
+                    for sud in AEROPORTI_SUD:
+                        voli_l += voli(direz, nord, sud, ini, fin, bloccate)
+                sols += catene_voli(direz, voli_l)
+                scelti = scegli(giorni, DATE_TRENO)
+                sols += catene_treno_diretto(direz, scelti)
+                sols += catene_flix(direz, scelti)
+            SOL[direz] = sols
+    finally:
+        chiudi_browser()
+
+    salva_dati(STATO["modalita"], nome, bloccate, SOL, ora_ora, False)
 
     righe = ["<b>✈️ REPORT VIAGGI PORTA-A-PORTA (Padova ⇄ Milazzo)</b>",
              "Evento: %s | Aggiornato: %s %s (ora italiana)" % (esc(nome), fmt(ora_ora), hm(ora_ora))]
@@ -1666,6 +1756,9 @@ def main():
             fonte, codice, e["n"], "; ".join(e["tratte"]), e["msg"])))
     for n, s in NON_LEGGIBILI.items():
         righe.append(esc("Dati non leggibili da %s, esempio: %s" % (n, s)))
+    if nord_spenti:
+        righe.append("Aeroporti del nord non attivi (nessuna navetta configurata): " + ", ".join(nord_spenti))
+    righe.append("Durata esecuzione: %d secondi." % round(time.time() - T0))
     righe.append("I link portano alla pagina di ricerca del vettore, non alla singola corsa.")
     righe.append("Italo escluso dalle ricerche su Sicilia e sud. Itabus escluso (inaffidabile).")
     telegram("\n".join(righe))
