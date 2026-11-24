@@ -50,18 +50,40 @@ def interpreta(testo, giorno):
     return corse
 
 
-def leggi(da, a, giorno):
+def leggi(da, a, giorno, browser=None):
+    """Legge la pagina Giuntabus. Se viene passato un browser condiviso lo riutilizza."""
     from playwright.sync_api import sync_playwright
     testo = ""
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+    pw = proprio = None
+    try:
+        if browser is None:
+            pw = sync_playwright().start()
+            proprio = pw.chromium.launch(headless=True)
+            browser = proprio
+        ctx = browser.new_context(locale="it-IT")
         try:
-            page = browser.new_page()
-            page.goto(url(da, a, giorno), wait_until="networkidle", timeout=30000)
-            page.wait_for_timeout(5000)
-            testo = page.inner_text("body")
+            page = ctx.new_page()
+            page.goto(url(da, a, giorno), wait_until="domcontentloaded", timeout=30000)
+            for _ in range(40):
+                try:
+                    testo = page.inner_text("body")
+                except Exception:
+                    testo = ""
+                if "Prezzo totale" in testo:
+                    page.wait_for_timeout(1000)
+                    try:
+                        testo = page.inner_text("body")
+                    except Exception:
+                        pass
+                    break
+                page.wait_for_timeout(500)
         finally:
-            browser.close()
+            ctx.close()
+    finally:
+        if proprio is not None:
+            proprio.close()
+        if pw is not None:
+            pw.stop()
     corse = interpreta(testo, giorno)
     for c in corse:
         c["link"] = url(da, a, giorno)
