@@ -1,0 +1,117 @@
+{
+ "aggiornato": "2026-11-24T23:13:55.877850+01:00",
+ "modalita": "simulazione",
+ "simulazione": true,
+ "evento": "SIMULAZIONE",
+ "date_escluse": [],
+ "durata_secondi": 0,
+ "valuta": "EUR",
+ "ANDATA": [
+  {
+   "totale": 37.77,
+   "tipo": "Fittizio",
+   "durata_minuti": 480,
+   "partenza": "2026-12-24T06:05:00+01:00",
+   "arrivo": "2026-12-24T14:05:00+01:00",
+   "segmenti": [
+    {
+     "mezzo": "bus",
+     "operatore": "Bus Fittizio",
+     "codice": "LINEA-FITT-N",
+     "da": "Padova Stanga via Venezia",
+     "a": "Venezia Marco Polo",
+     "partenza": "2026-12-24T06:05:00+01:00",
+     "arrivo": "2026-12-24T06:45:00+01:00",
+     "prezzo": 11.11,
+     "link": "https://esempio.invalid/bus",
+     "attesa_dopo_min": 90
+    },
+    {
+     "mezzo": "volo",
+     "operatore": "Compagnia Fittizia",
+     "codice": "XX 100",
+     "da": "Venezia Marco Polo",
+     "a": "Palermo Aeroporto",
+     "partenza": "2026-12-24T08:15:00+01:00",
+     "arrivo": "2026-12-24T09:40:00+01:00",
+     "prezzo": 22.22,
+     "link": "https://esempio.invalid/volo",
+     "attesa_dopo_min": 65
+    },
+    {
+     "mezzo": "treno",
+     "operatore": "Operatore Fittizio",
+     "codice": "FITT-1 + FITT-2",
+     "da": "Palermo Aeroporto",
+     "a": "Milazzo",
+     "partenza": "2026-12-24T10:45:00+01:00",
+     "arrivo": "2026-12-24T14:05:00+01:00",
+     "prezzo": 4.44,
+     "link": "https://esempio.invalid/treno",
+     "tratte": [
+      {
+       "mezzo": "Treno",
+       "codice": "FITT-1",
+       "da": "Palermo Aeroporto",
+       "a": "Palermo Centrale",
+       "partenza": "2026-12-24T10:45:00+01:00",
+       "arrivo": "2026-12-24T11:40:00+01:00"
+      },
+      {
+       "mezzo": "Treno",
+       "codice": "FITT-2",
+       "da": "Palermo Centrale",
+       "a": "Milazzo",
+       "partenza": "2026-12-24T12:20:00+01:00",
+       "arrivo": "2026-12-24T14:05:00+01:00"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "RITORNO": [
+  {
+   "totale": 46.66,
+   "tipo": "Fittizio",
+   "durata_minuti": 1231,
+   "partenza": "2026-12-31T17:54:00+01:00",
+   "arrivo": "2027-01-01T14:25:00+01:00",
+   "segmenti": [
+    {
+     "mezzo": "treno",
+     "operatore": "Operatore Fittizio",
+     "codice": "FITT-R1",
+     "da": "Milazzo",
+     "a": "Messina Centrale",
+     "partenza": "2026-12-31T17:54:00+01:00",
+     "arrivo": "2026-12-31T18:27:00+01:00",
+     "prezzo": 2.22,
+     "link": "https://esempio.invalid/treno",
+     "tratte": [
+      {
+       "mezzo": "Treno",
+       "codice": "FITT-R1",
+       "da": "Milazzo",
+       "a": "Messina Centrale",
+       "partenza": "2026-12-31T17:54:00+01:00",
+       "arrivo": "2026-12-31T18:27:00+01:00"
+      }
+     ],
+     "attesa_dopo_min": 108
+    },
+    {
+     "mezzo": "bus",
+     "operatore": "Bus Fittizio",
+     "codice": null,
+     "da": "Messina",
+     "a": "Padova",
+     "partenza": "2026-12-31T20:15:00+01:00",
+     "arrivo": "2027-01-01T14:25:00+01:00",
+     "prezzo": 44.44,
+     "link": "https://esempio.invalid/bus"
+    }
+   ]
+  }
+ ]
+}
