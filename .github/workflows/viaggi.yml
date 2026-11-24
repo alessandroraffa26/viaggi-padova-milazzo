@@ -44,6 +44,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Cache npm e browser Playwright
+        if: steps.data.outputs.reale == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/ms-playwright
+          key: viaggi-cache-${{ runner.os }}-v1
       - name: Installa flywizz
         if: steps.data.outputs.reale == 'true'
         run: pip install flywizz
@@ -69,31 +77,33 @@ jobs:
         if: steps.data.outputs.reale == 'true'
         uses: tailscale/github-action@v4
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
+          authkey: ${{ secrets.TS_AUTHKEY }}
           version: latest
           args: --exit-node=${{ secrets.TS_EXIT_NODE_IP }} --exit-node-allow-lan-access
           ping: ${{ secrets.TS_EXIT_NODE_IP }}
       - name: Verifica IP (deve essere quello di casa)
         if: steps.data.outputs.reale == 'true'
-        run: curl -s https://api.ipify.org
+        run: |
+          IP=$(curl -s --max-time 20 https://api.ipify.org)
+          echo "IP pubblico visto dal workflow: $IP"
+          test -n "$IP"
       - name: Cerca e invia report
         if: steps.data.outputs.attivo == 'true'
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python viaggi.py
-      - name: Salva vincoli
-        if: always() && steps.data.outputs.reale == 'true'
+      - name: Salva vincoli e dati per la web app
+        if: always() && steps.data.outputs.attivo == 'true'
         continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add vincoli.json || true
-          git diff --cached --quiet || (git commit -m "aggiorna vincoli" && git push)
+          git add dati_viaggi.json || true
+          git diff --cached --quiet || (git commit -m "aggiorna dati viaggi" && git pull --rebase origin main && git push)
       - name: Avviso errore su Telegram
         if: failure() && steps.data.outputs.attivo == 'true'
         run: |
-          sudo tailscale set --exit-node= || true
+          if [ "${{ steps.data.outputs.reale }}" = "true" ]; then sudo tailscale set --exit-node= || true; fi
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="Errore report viaggi (modalità ${{ steps.data.outputs.modalita }}): controlla i log su GitHub Actions e, se reale, che il dispositivo di casa sia acceso e online."
