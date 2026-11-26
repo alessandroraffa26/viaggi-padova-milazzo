@@ -87,11 +87,21 @@ jobs:
           done
           curl -sf http://127.0.0.1:3000/health
 
-      - name: Verifica IP (senza Tailscale)
+      - name: Collega Tailscale e usa il nodo di casa
+        if: steps.data.outputs.reale == 'true'
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          args: --exit-node=${{ secrets.TS_EXIT_NODE_IP }} --exit-node-allow-lan-access
+          ping: ${{ secrets.TS_EXIT_NODE_IP }}
+
+      - name: Verifica IP (con Tailscale)
         if: steps.data.outputs.reale == 'true'
         run: |
           IP=$(curl -s --max-time 20 https://api.ipify.org)
-          echo "IP pubblico visto dal workflow senza Tailscale: $IP"
+          echo "IP pubblico visto dal workflow con Tailscale: $IP"
           test -n "$IP"
 
       - name: Cerca e invia report
