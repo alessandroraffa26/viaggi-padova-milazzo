@@ -1,3 +1,4 @@
+
 name: Report viaggi
 
 on:
@@ -35,6 +36,7 @@ jobs:
       MESSAGGIO: ${{ github.event.client_payload.messaggio }}
       MODALITA: ${{ github.event.inputs.modalita }}
       EVENTO_TEST: ${{ github.event.inputs.evento_test }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -85,17 +87,7 @@ jobs:
           done
           curl -sf http://127.0.0.1:3000/health
 
-      - name: Collega Tailscale e usa il nodo di casa
-        if: steps.data.outputs.reale == 'true'
-        uses: tailscale/github-action@v4
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-          args: --exit-node=${{ secrets.TS_EXIT_NODE_IP }} --exit-node-allow-lan-access
-          ping: ${{ secrets.TS_EXIT_NODE_IP }}
-
-          - name: Verifica IP (senza Tailscale)
+      - name: Verifica IP (senza Tailscale)
         if: steps.data.outputs.reale == 'true'
         run: |
           IP=$(curl -s --max-time 20 https://api.ipify.org)
@@ -122,4 +114,4 @@ jobs:
       - name: Avviso errore su Telegram
         if: failure() && steps.data.outputs.attivo == 'true'
         run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="Errore report viaggi (modalità ${{ steps.data.outputs.modalita }}): controlla i log su GitHub Actions e, se reale, che il dispositivo di casa sia acceso e online."
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" -d text="Errore report viaggi (modalità ${{ steps.data.outputs.modalita }}): controlla i log su GitHub Actions."
