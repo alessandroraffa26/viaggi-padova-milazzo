@@ -1,4 +1,5 @@
 name: Report viaggi
+
 on:
   schedule:
     - cron: "0 5 * * 1"
@@ -18,11 +19,14 @@ on:
         description: "Solo modalità reale: 4 date AAAA-MM-GG separate da virgola (andata da, andata a, ritorno da, ritorno a). Vuoto = festività ufficiali"
         required: false
         default: ""
+
 permissions:
   contents: write
+
 concurrency:
   group: viaggi
   cancel-in-progress: false
+
 jobs:
   report:
     runs-on: ubuntu-latest
@@ -33,17 +37,21 @@ jobs:
       EVENTO_TEST: ${{ github.event.inputs.evento_test }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Controllo data e modalità
         id: data
         run: python viaggi.py --solo-controllo
+
       - name: Installa Node.js
         if: steps.data.outputs.reale == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+
       - name: Cache npm e browser Playwright
         if: steps.data.outputs.reale == 'true'
         uses: actions/cache@v4
@@ -52,14 +60,17 @@ jobs:
             ~/.npm
             ~/.cache/ms-playwright
           key: viaggi-cache-${{ runner.os }}-v1
+
       - name: Installa flywizz
         if: steps.data.outputs.reale == 'true'
         run: pip install flywizz
+
       - name: Installa Playwright e Chromium
         if: steps.data.outputs.reale == 'true'
         run: |
           pip install playwright
           python -m playwright install --with-deps chromium
+
       - name: Avvia italian-travel-search
         if: steps.data.outputs.reale == 'true'
         run: |
@@ -73,26 +84,31 @@ jobs:
             sleep 3
           done
           curl -sf http://127.0.0.1:3000/health
+
       - name: Collega Tailscale e usa il nodo di casa
         if: steps.data.outputs.reale == 'true'
         uses: tailscale/github-action@v4
         with:
-          authkey: ${{ secrets.TS_AUTHKEY }}
-          version: latest
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
           args: --exit-node=${{ secrets.TS_EXIT_NODE_IP }} --exit-node-allow-lan-access
           ping: ${{ secrets.TS_EXIT_NODE_IP }}
+
       - name: Verifica IP (deve essere quello di casa)
         if: steps.data.outputs.reale == 'true'
         run: |
           IP=$(curl -s --max-time 20 https://api.ipify.org)
           echo "IP pubblico visto dal workflow: $IP"
           test -n "$IP"
+
       - name: Cerca e invia report
         if: steps.data.outputs.attivo == 'true'
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python viaggi.py
+
       - name: Salva vincoli e dati per la web app
         if: always() && steps.data.outputs.attivo == 'true'
         continue-on-error: true
@@ -102,6 +118,7 @@ jobs:
           git add vincoli.json || true
           git add dati_viaggi.json || true
           git diff --cached --quiet || (git commit -m "aggiorna dati viaggi" && git pull --rebase origin main && git push)
+
       - name: Avviso errore su Telegram
         if: failure() && steps.data.outputs.attivo == 'true'
         run: |
