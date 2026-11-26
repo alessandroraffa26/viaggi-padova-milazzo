@@ -1,10 +1,10 @@
 {
- "aggiornato": "2026-11-26T15:26:39.939015+01:00",
+ "aggiornato": "2026-11-26T15:37:34.983543+01:00",
  "modalita": "reale-manuale",
  "simulazione": false,
  "evento": "TEST MANUALE",
  "date_escluse": [],
- "durata_secondi": 194,
+ "durata_secondi": 259,
  "valuta": "EUR",
  "ANDATA": [
   {
@@ -134,68 +134,6 @@
    ]
   },
   {
-   "totale": 82.6,
-   "tipo": "Treno",
-   "durata_minuti": 978,
-   "partenza": "2026-12-05T22:33:00+01:00",
-   "arrivo": "2026-12-06T14:51:00+01:00",
-   "segmenti": [
-    {
-     "mezzo": "treno",
-     "operatore": "trenitalia",
-     "codice": "770 + 8333 + V7 + UB + 5365",
-     "da": "Padova",
-     "a": "Milazzo",
-     "partenza": "2026-12-05T22:33:00+01:00",
-     "arrivo": "2026-12-06T14:51:00+01:00",
-     "prezzo": 82.6,
-     "link": "https://www.lefrecce.it/Channels.Website.WEB/",
-     "tratte": [
-      {
-       "mezzo": "Treno",
-       "codice": "770",
-       "da": "Padova",
-       "a": "Roma Termini",
-       "partenza": "2026-12-05T22:33:00+01:00",
-       "arrivo": "2026-12-06T06:55:00+01:00"
-      },
-      {
-       "mezzo": "Treno",
-       "codice": "8333",
-       "da": "Roma Termini",
-       "a": "Villa S. Giovanni",
-       "partenza": "2026-12-06T07:30:00+01:00",
-       "arrivo": "2026-12-06T12:47:00+01:00"
-      },
-      {
-       "mezzo": "Attraversamento Stretto (nave)",
-       "codice": "V7",
-       "da": "Villa S. Giovanni",
-       "a": "Messina Marittima",
-       "partenza": "2026-12-06T13:30:00+01:00",
-       "arrivo": "2026-12-06T13:50:00+01:00"
-      },
-      {
-       "mezzo": "Treno",
-       "codice": "UB",
-       "da": "Messina Marittima",
-       "a": "Messina Centrale",
-       "partenza": "2026-12-06T13:55:00+01:00",
-       "arrivo": "2026-12-06T14:00:00+01:00"
-      },
-      {
-       "mezzo": "Treno",
-       "codice": "5365",
-       "da": "Messina Centrale",
-       "a": "Milazzo",
-       "partenza": "2026-12-06T14:36:00+01:00",
-       "arrivo": "2026-12-06T14:51:00+01:00"
-      }
-     ]
-    }
-   ]
-  },
-  {
    "totale": 88.77,
    "tipo": "FlixBus + treno",
    "durata_minuti": 1324,
@@ -274,44 +212,6 @@
        "a": "Milazzo",
        "partenza": "2026-12-04T21:12:00+01:00",
        "arrivo": "2026-12-04T21:41:00+01:00"
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "totale": 98.8,
-   "tipo": "Treno",
-   "durata_minuti": 1067,
-   "partenza": "2026-12-05T22:33:00+01:00",
-   "arrivo": "2026-12-06T16:20:00+01:00",
-   "segmenti": [
-    {
-     "mezzo": "treno",
-     "operatore": "trenitalia",
-     "codice": "770 + 723",
-     "da": "Padova",
-     "a": "Milazzo",
-     "partenza": "2026-12-05T22:33:00+01:00",
-     "arrivo": "2026-12-06T16:20:00+01:00",
-     "prezzo": 98.8,
-     "link": "https://www.lefrecce.it/Channels.Website.WEB/",
-     "tratte": [
-      {
-       "mezzo": "Treno",
-       "codice": "770",
-       "da": "Padova",
-       "a": "Roma Termini",
-       "partenza": "2026-12-05T22:33:00+01:00",
-       "arrivo": "2026-12-06T06:55:00+01:00"
-      },
-      {
-       "mezzo": "Treno",
-       "codice": "723",
-       "da": "Roma Termini",
-       "a": "Milazzo",
-       "partenza": "2026-12-06T07:26:00+01:00",
-       "arrivo": "2026-12-06T16:20:00+01:00"
       }
      ]
     }
@@ -402,7 +302,7 @@
    ]
   },
   {
-   "totale": 103.2,
+   "totale": 108.2,
    "tipo": "Treno",
    "durata_minuti": 977,
    "partenza": "2026-12-04T22:33:00+01:00",
@@ -416,7 +316,7 @@
      "a": "Milazzo",
      "partenza": "2026-12-04T22:33:00+01:00",
      "arrivo": "2026-12-05T14:50:00+01:00",
-     "prezzo": 103.2,
+     "prezzo": 108.2,
      "link": "https://www.lefrecce.it/Channels.Website.WEB/",
      "tratte": [
       {
@@ -458,76 +358,6 @@
        "a": "Milazzo",
        "partenza": "2026-12-05T14:35:00+01:00",
        "arrivo": "2026-12-05T14:50:00+01:00"
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "totale": 103.9,
-   "tipo": "Treno",
-   "durata_minuti": 879,
-   "partenza": "2026-12-05T19:56:00+01:00",
-   "arrivo": "2026-12-06T10:35:00+01:00",
-   "segmenti": [
-    {
-     "mezzo": "treno",
-     "operatore": "trenitalia",
-     "codice": "9437 + 795 + 6180 + V4 + UB + 22303",
-     "da": "Padova",
-     "a": "Milazzo",
-     "partenza": "2026-12-05T19:56:00+01:00",
-     "arrivo": "2026-12-06T10:35:00+01:00",
-     "prezzo": 103.9,
-     "link": "https://www.lefrecce.it/Channels.Website.WEB/",
-     "tratte": [
-      {
-       "mezzo": "Treno",
-       "codice": "9437",
-       "da": "Padova",
-       "a": "Roma Tiburtina",
-       "partenza": "2026-12-05T19:56:00+01:00",
-       "arrivo": "2026-12-05T23:14:00+01:00"
-      },
-      {
-       "mezzo": "Treno",
-       "codice": "795",
-       "da": "Roma Tiburtina",
-       "a": "Lamezia Terme Centrale",
-       "partenza": "2026-12-05T23:31:00+01:00",
-       "arrivo": "2026-12-06T06:43:00+01:00"
-      },
-      {
-       "mezzo": "Treno",
-       "codice": "6180",
-       "da": "Lamezia Terme Centrale",
-       "a": "Villa S. Giovanni",
-       "partenza": "2026-12-06T07:32:00+01:00",
-       "arrivo": "2026-12-06T08:43:00+01:00"
-      },
-      {
-       "mezzo": "Attraversamento Stretto (nave)",
-       "codice": "V4",
-       "da": "Villa S. Giovanni",
-       "a": "Messina Marittima",
-       "partenza": "2026-12-06T09:00:00+01:00",
-       "arrivo": "2026-12-06T09:20:00+01:00"
-      },
-      {
-       "mezzo": "Treno",
-       "codice": "UB",
-       "da": "Messina Marittima",
-       "a": "Messina Centrale",
-       "partenza": "2026-12-06T09:25:00+01:00",
-       "arrivo": "2026-12-06T09:30:00+01:00"
-      },
-      {
-       "mezzo": "Treno",
-       "codice": "22303",
-       "da": "Messina Centrale",
-       "a": "Milazzo",
-       "partenza": "2026-12-06T10:05:00+01:00",
-       "arrivo": "2026-12-06T10:35:00+01:00"
       }
      ]
     }
@@ -604,44 +434,6 @@
        "a": "Milazzo",
        "partenza": "2026-12-04T23:05:00+01:00",
        "arrivo": "2026-12-05T13:41:00+01:00"
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "totale": 120.5,
-   "tipo": "Treno",
-   "durata_minuti": 1052,
-   "partenza": "2026-12-05T20:09:00+01:00",
-   "arrivo": "2026-12-06T13:41:00+01:00",
-   "segmenti": [
-    {
-     "mezzo": "treno",
-     "operatore": "trenitalia",
-     "codice": "3989 + 1963",
-     "da": "Padova",
-     "a": "Milazzo",
-     "partenza": "2026-12-05T20:09:00+01:00",
-     "arrivo": "2026-12-06T13:41:00+01:00",
-     "prezzo": 120.5,
-     "link": "https://www.lefrecce.it/Channels.Website.WEB/",
-     "tratte": [
-      {
-       "mezzo": "Treno",
-       "codice": "3989",
-       "da": "Padova",
-       "a": "Bologna Centrale",
-       "partenza": "2026-12-05T20:09:00+01:00",
-       "arrivo": "2026-12-05T21:45:00+01:00"
-      },
-      {
-       "mezzo": "Treno",
-       "codice": "1963",
-       "da": "Bologna Centrale",
-       "a": "Milazzo",
-       "partenza": "2026-12-05T23:05:00+01:00",
-       "arrivo": "2026-12-06T13:41:00+01:00"
       }
      ]
     }
@@ -818,44 +610,6 @@
    ]
   },
   {
-   "totale": 139.6,
-   "tipo": "Treno",
-   "durata_minuti": 799,
-   "partenza": "2026-12-05T16:56:00+01:00",
-   "arrivo": "2026-12-06T06:15:00+01:00",
-   "segmenti": [
-    {
-     "mezzo": "treno",
-     "operatore": "trenitalia",
-     "codice": "9431 + 1955",
-     "da": "Padova",
-     "a": "Milazzo",
-     "partenza": "2026-12-05T16:56:00+01:00",
-     "arrivo": "2026-12-06T06:15:00+01:00",
-     "prezzo": 139.6,
-     "link": "https://www.lefrecce.it/Channels.Website.WEB/",
-     "tratte": [
-      {
-       "mezzo": "Treno",
-       "codice": "9431",
-       "da": "Padova",
-       "a": "Napoli Centrale",
-       "partenza": "2026-12-05T16:56:00+01:00",
-       "arrivo": "2026-12-05T21:48:00+01:00"
-      },
-      {
-       "mezzo": "Treno",
-       "codice": "1955",
-       "da": "Napoli Centrale",
-       "a": "Milazzo",
-       "partenza": "2026-12-05T22:37:00+01:00",
-       "arrivo": "2026-12-06T06:15:00+01:00"
-      }
-     ]
-    }
-   ]
-  },
-  {
    "totale": 140.76,
    "tipo": "FlixBus + treno",
    "durata_minuti": 1333,
@@ -898,11 +652,269 @@
    ]
   },
   {
-   "totale": 141.1,
+   "totale": 141.4,
    "tipo": "Treno",
-   "durata_minuti": 900,
-   "partenza": "2026-12-05T18:56:00+01:00",
-   "arrivo": "2026-12-06T09:56:00+01:00",
+   "durata_minuti": 758,
+   "partenza": "2026-12-04T10:09:00+01:00",
+   "arrivo": "2026-12-04T22:47:00+01:00",
+   "segmenti": [
+    {
+     "mezzo": "treno",
+     "operatore": "trenitalia",
+     "codice": "3997 + 9623 + V13 + UB + 12919",
+     "da": "Padova",
+     "a": "Milazzo",
+     "partenza": "2026-12-04T10:09:00+01:00",
+     "arrivo": "2026-12-04T22:47:00+01:00",
+     "prezzo": 141.4,
+     "link": "https://www.lefrecce.it/Channels.Website.WEB/",
+     "tratte": [
+      {
+       "mezzo": "Treno",
+       "codice": "3997",
+       "da": "Padova",
+       "a": "Bologna Centrale",
+       "partenza": "2026-12-04T10:09:00+01:00",
+       "arrivo": "2026-12-04T11:45:00+01:00"
+      },
+      {
+       "mezzo": "Treno",
+       "codice": "9623",
+       "da": "Bologna Centrale",
+       "a": "Villa S. Giovanni",
+       "partenza": "2026-12-04T12:07:00+01:00",
+       "arrivo": "2026-12-04T20:04:00+01:00"
+      },
+      {
+       "mezzo": "Attraversamento Stretto (nave)",
+       "codice": "V13",
+       "da": "Villa S. Giovanni",
+       "a": "Messina Marittima",
+       "partenza": "2026-12-04T20:40:00+01:00",
+       "arrivo": "2026-12-04T21:00:00+01:00"
+      },
+      {
+       "mezzo": "Treno",
+       "codice": "UB",
+       "da": "Messina Marittima",
+       "a": "Messina Centrale",
+       "partenza": "2026-12-04T21:05:00+01:00",
+       "arrivo": "2026-12-04T21:10:00+01:00"
+      },
+      {
+       "mezzo": "Treno",
+       "codice": "12919",
+       "da": "Messina Centrale",
+       "a": "Milazzo",
+       "partenza": "2026-12-04T22:17:00+01:00",
+       "arrivo": "2026-12-04T22:47:00+01:00"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "totale": 142.7,
+   "tipo": "Treno",
+   "durata_minuti": 1027,
+   "partenza": "2026-12-04T15:50:00+01:00",
+   "arrivo": "2026-12-05T08:57:00+01:00",
+   "segmenti": [
+    {
+     "mezzo": "treno",
+     "operatore": "trenitalia",
+     "codice": "594 + 95063",
+     "da": "Padova",
+     "a": "Milazzo",
+     "partenza": "2026-12-04T15:50:00+01:00",
+     "arrivo": "2026-12-05T08:57:00+01:00",
+     "prezzo": 142.7,
+     "link": "https://www.lefrecce.it/Channels.Website.WEB/",
+     "tratte": [
+      {
+       "mezzo": "Treno",
+       "codice": "594",
+       "da": "Padova",
+       "a": "Roma Termini",
+       "partenza": "2026-12-04T15:50:00+01:00",
+       "arrivo": "2026-12-04T22:20:00+01:00"
+      },
+      {
+       "mezzo": "Treno",
+       "codice": "95063",
+       "da": "Roma Termini",
+       "a": "Milazzo",
+       "partenza": "2026-12-04T23:00:00+01:00",
+       "arrivo": "2026-12-05T08:57:00+01:00"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "totale": 145.27,
+   "tipo": "FlixBus + treno",
+   "durata_minuti": 1497,
+   "partenza": "2026-12-04T21:50:00+01:00",
+   "arrivo": "2026-12-05T22:47:00+01:00",
+   "segmenti": [
+    {
+     "mezzo": "bus",
+     "operatore": "flixbus",
+     "codice": null,
+     "da": "Padova",
+     "a": "Messina",
+     "partenza": "2026-12-04T21:50:00+01:00",
+     "arrivo": "2026-12-05T19:50:00+01:00",
+     "prezzo": 140.47,
+     "link": "https://shop.flixbus.it/search?departureCity=40de8868-8646-11e6-9066-549f350fcb0c&arrivalCity=a61f616b-8ab8-402b-9163-9eb7b2effad4&rideDate=04.12.2026&adult=1&currency=EUR",
+     "attesa_dopo_min": 147
+    },
+    {
+     "mezzo": "treno",
+     "operatore": "trenitalia",
+     "codice": "12919",
+     "da": "Messina Centrale",
+     "a": "Milazzo",
+     "partenza": "2026-12-05T22:17:00+01:00",
+     "arrivo": "2026-12-05T22:47:00+01:00",
+     "prezzo": 4.8,
+     "link": "https://www.lefrecce.it/Channels.Website.WEB/",
+     "tratte": [
+      {
+       "mezzo": "Treno",
+       "codice": "12919",
+       "da": "Messina Centrale",
+       "a": "Milazzo",
+       "partenza": "2026-12-05T22:17:00+01:00",
+       "arrivo": "2026-12-05T22:47:00+01:00"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "totale": 145.8,
+   "tipo": "Treno",
+   "durata_minuti": 1225,
+   "partenza": "2026-12-04T09:50:00+01:00",
+   "arrivo": "2026-12-05T06:15:00+01:00",
+   "segmenti": [
+    {
+     "mezzo": "treno",
+     "operatore": "trenitalia",
+     "codice": "584 + 5839 + 5199 + 1955",
+     "da": "Padova",
+     "a": "Milazzo",
+     "partenza": "2026-12-04T09:50:00+01:00",
+     "arrivo": "2026-12-05T06:15:00+01:00",
+     "prezzo": 145.8,
+     "link": "https://www.lefrecce.it/Channels.Website.WEB/",
+     "tratte": [
+      {
+       "mezzo": "Treno",
+       "codice": "584",
+       "da": "Padova",
+       "a": "Roma Termini",
+       "partenza": "2026-12-04T09:50:00+01:00",
+       "arrivo": "2026-12-04T16:20:00+01:00"
+      },
+      {
+       "mezzo": "Treno",
+       "codice": "5839",
+       "da": "Roma Termini",
+       "a": "Caserta",
+       "partenza": "2026-12-04T16:42:00+01:00",
+       "arrivo": "2026-12-04T20:20:00+01:00"
+      },
+      {
+       "mezzo": "Treno",
+       "codice": "5199",
+       "da": "Caserta",
+       "a": "Napoli Centrale",
+       "partenza": "2026-12-04T20:51:00+01:00",
+       "arrivo": "2026-12-04T21:30:00+01:00"
+      },
+      {
+       "mezzo": "Treno",
+       "codice": "1955",
+       "da": "Napoli Centrale",
+       "a": "Milazzo",
+       "partenza": "2026-12-04T23:01:00+01:00",
+       "arrivo": "2026-12-05T06:15:00+01:00"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "totale": 155.4,
+   "tipo": "Treno",
+   "durata_minuti": 678,
+   "partenza": "2026-12-04T08:56:00+01:00",
+   "arrivo": "2026-12-04T20:14:00+01:00",
+   "segmenti": [
+    {
+     "mezzo": "treno",
+     "operatore": "trenitalia",
+     "codice": "9409 + 9583 + V12 + UB + 95057",
+     "da": "Padova",
+     "a": "Milazzo",
+     "partenza": "2026-12-04T08:56:00+01:00",
+     "arrivo": "2026-12-04T20:14:00+01:00",
+     "prezzo": 155.4,
+     "link": "https://www.lefrecce.it/Channels.Website.WEB/",
+     "tratte": [
+      {
+       "mezzo": "Treno",
+       "codice": "9409",
+       "da": "Padova",
+       "a": "Bologna Centrale",
+       "partenza": "2026-12-04T08:56:00+01:00",
+       "arrivo": "2026-12-04T09:59:00+01:00"
+      },
+      {
+       "mezzo": "Treno",
+       "codice": "9583",
+       "da": "Bologna Centrale",
+       "a": "Villa S. Giovanni",
+       "partenza": "2026-12-04T10:27:00+01:00",
+       "arrivo": "2026-12-04T18:45:00+01:00"
+      },
+      {
+       "mezzo": "Attraversamento Stretto (nave)",
+       "codice": "V12",
+       "da": "Villa S. Giovanni",
+       "a": "Messina Marittima",
+       "partenza": "2026-12-04T19:10:00+01:00",
+       "arrivo": "2026-12-04T19:30:00+01:00"
+      },
+      {
+       "mezzo": "Treno",
+       "codice": "UB",
+       "da": "Messina Marittima",
+       "a": "Messina Centrale",
+       "partenza": "2026-12-04T19:35:00+01:00",
+       "arrivo": "2026-12-04T19:40:00+01:00"
+      },
+      {
+       "mezzo": "Treno",
+       "codice": "95057",
+       "da": "Messina Centrale",
+       "a": "Milazzo",
+       "partenza": "2026-12-04T19:55:00+01:00",
+       "arrivo": "2026-12-04T20:14:00+01:00"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "totale": 160.1,
+   "tipo": "Treno",
+   "durata_minuti": 841,
+   "partenza": "2026-12-04T18:56:00+01:00",
+   "arrivo": "2026-12-05T08:57:00+01:00",
    "segmenti": [
     {
      "mezzo": "treno",
@@ -910,9 +922,9 @@
      "codice": "9435 + 95063",
      "da": "Padova",
      "a": "Milazzo",
-     "partenza": "2026-12-05T18:56:00+01:00",
-     "arrivo": "2026-12-06T09:56:00+01:00",
-     "prezzo": 141.1,
+     "partenza": "2026-12-04T18:56:00+01:00",
+     "arrivo": "2026-12-05T08:57:00+01:00",
+     "prezzo": 160.1,
      "link": "https://www.lefrecce.it/Channels.Website.WEB/",
      "tratte": [
       {
@@ -920,16 +932,16 @@
        "codice": "9435",
        "da": "Padova",
        "a": "Roma Termini",
-       "partenza": "2026-12-05T18:56:00+01:00",
-       "arrivo": "2026-12-05T22:25:00+01:00"
+       "partenza": "2026-12-04T18:56:00+01:00",
+       "arrivo": "2026-12-04T22:25:00+01:00"
       },
       {
        "mezzo": "Treno",
        "codice": "95063",
        "da": "Roma Termini",
        "a": "Milazzo",
-       "partenza": "2026-12-05T23:25:00+01:00",
-       "arrivo": "2026-12-06T09:56:00+01:00"
+       "partenza": "2026-12-04T23:00:00+01:00",
+       "arrivo": "2026-12-05T08:57:00+01:00"
       }
      ]
     }
